@@ -131,6 +131,8 @@ class LiveShape(MockSourceAdapter):
 
 
 def test_favourites_priority_fairness_and_actual_check_time(client, monkeypatch):
+    monkeypatch.setenv("KNOWN_DETAIL_LIMIT", "6")
+    settings.cache_clear()
     adapter = LiveShape()
     adapter.checked = []
     monkeypatch.setattr(runner, "adapter_for", lambda _: adapter)
