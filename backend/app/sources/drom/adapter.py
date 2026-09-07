@@ -3,13 +3,15 @@ from typing import Any
 from urllib.parse import urlencode
 
 from app.catalog import source_scope
+from app.config import settings
 from app.domain.models import NormalizedListing, Source, UnifiedSearchFilters
 from app.sources.base import CarSourceAdapter, SourceCapabilities, SourceFailure, SourcePage
 from app.sources.drom import parser
 from app.sources.drom.normalizer import normalize
 from app.sources.drom.transport import DromTransport
+from app.sources.regions import DROM_REGIONS
 
-REGIONS = {"москва": "moscow", "санкт-петербург": "spb", "новосибирск": "novosibirsk"}
+REGIONS = DROM_REGIONS
 
 
 def search_url(filters: UnifiedSearchFilters, page: int) -> str:
@@ -19,12 +21,17 @@ def search_url(filters: UnifiedSearchFilters, page: int) -> str:
     region = REGIONS.get(filters.region or "")
     if filters.region and not region:
         raise SourceFailure("UNSUPPORTED_REGION")
-    if page not in (1, 2):
+    if not 1 <= page <= settings().search_max_depth:
         raise SourceFailure("PAGE_LIMIT")
     path = "/".join(([region] if region else []) + [make] + ([model] if model else []))
     query = {
         name: str(value)
-        for name, value in (("minprice", filters.price_from), ("maxprice", filters.price_to))
+        for name, value in (
+            ("minprice", filters.price_from),
+            ("maxprice", filters.price_to),
+            ("minyear", filters.year_from),
+            ("maxyear", filters.year_to),
+        )
         if value is not None
     }
     return (
@@ -43,6 +50,8 @@ class DromSourceAdapter(CarSourceAdapter):
 
     async def search(self, filters: UnifiedSearchFilters, page: int = 1) -> SourcePage:
         data = parser.search(await self.transport.get(search_url(filters, page)), page)
+        if not self.enrich_details:
+            return data
         # Enrich only potentially matching cards, within a hard per-run detail budget.
         from app.domain.filtering import evaluate
 
@@ -85,7 +94,9 @@ class DromSourceAdapter(CarSourceAdapter):
             for name in UnifiedSearchFilters.model_fields
             if name != "schema_version"
         }
-        filters.update({name: "remote" for name in ("make", "model", "price_from", "price_to")})
+        filters.update(
+            {name: "remote" for name in ("make", "model", "price_from", "price_to", "year_from", "year_to")}
+        )
         filters.update(
             region="remote_limited_cities",
             radius_km="unverified",
@@ -97,6 +108,6 @@ class DromSourceAdapter(CarSourceAdapter):
             filters=filters,
             detail=True,
             images=True,
-            max_pages=2,
-            max_results=40,
+            max_pages=settings().search_page_limit,
+            max_results=250,
         )

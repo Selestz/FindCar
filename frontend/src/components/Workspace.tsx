@@ -1,3 +1,4 @@
+import { coverageWarning } from "../presentation";
 import {
   useCallback,
   useEffect,
@@ -579,6 +580,35 @@ export function Workspace({
                   {results?.unverified_count ?? 0})
                 </label>
               )}
+              {isSearch && run && (
+                <div className="coverage-status small" aria-live="polite">
+                  {run.sources.map((source) => (
+                    <p key={source.source}>
+                      <strong>{sourceNames[source.source]}:</strong>{" "}
+                      {source.state === "running" || source.state === "queued"
+                        ? "проверяем объявления…"
+                        : source.catalog_complete
+                          ? "выдача проверена до последней страницы"
+                          : "выдача проверена частично"}
+                      {!!source.pages_checked?.length &&
+                        " · страницы: " + source.pages_checked.join(", ")}
+                      {source.error_code
+                        ? " · " + display(source.error_code)
+                        : ""}
+                    </p>
+                  ))}
+                  {results?.total === 0 &&
+                    run.sources.some((source) => !source.catalog_complete) && (
+                      <p className="muted">
+                        Отсутствие результатов пока не означает, что подходящих
+                        машин нет.{" "}
+                        {selected?.enabled
+                          ? "Поиск продолжится по расписанию."
+                          : "Запустите обновление, чтобы продолжить проверку."}
+                      </p>
+                    )}
+                </div>
+              )}
               <Results
                 key={"results-" + location}
                 data={results}
@@ -605,7 +635,10 @@ export function Workspace({
                         ? " · Повторная попытка после " + date(s.not_before)
                         : ""}
                       {s.warnings.length > 0
-                        ? " · Достигнут лимит проверки страниц"
+                        ? " · " +
+                          [...new Set(s.warnings.map(coverageWarning))].join(
+                            ". ",
+                          )
                         : ""}
                     </p>
                   ))}

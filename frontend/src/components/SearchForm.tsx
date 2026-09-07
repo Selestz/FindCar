@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Filters, SavedSearch } from "../api";
+import { api, type Filters, type SavedSearch } from "../api";
 import { labels, sourceNames } from "../presentation";
 import { getCatalog, type CatalogItem } from "../catalog";
 import { ComboBox, type Option } from "./ComboBox";
@@ -21,12 +21,6 @@ const priceOptions: Option[] = [
       label: value.toLocaleString("ru-RU") + " ₽",
     };
   }),
-];
-const regions: Option[] = [
-  { value: "", label: "Вся Россия" },
-  { value: "москва", label: "Москва" },
-  { value: "санкт-петербург", label: "Санкт-Петербург" },
-  { value: "новосибирск", label: "Новосибирск" },
 ];
 const enums: Record<string, [string, string[]]> = {
   transmission: ["Коробка передач", ["automatic", "manual", "robot", "cvt"]],
@@ -78,6 +72,7 @@ export function SearchForm({
       ].map((key) => [key, String(f[key] ?? "")]),
     ),
   );
+  const [regions, setRegions] = useState<CatalogItem[]>([]);
   const [brands, setBrands] = useState<CatalogItem[]>([]),
     [models, setModels] = useState<CatalogItem[]>([]),
     [modelLoading, setModelLoading] = useState(true);
@@ -92,8 +87,14 @@ export function SearchForm({
     [mobileOpen, setMobileOpen] = useState(false);
   useEffect(() => {
     const ctrl = new AbortController();
-    void getCatalog("", ctrl.signal)
-      .then(setBrands)
+    void Promise.all([
+      getCatalog("", ctrl.signal),
+      api<{ items: CatalogItem[] }>("/regions", { signal: ctrl.signal }),
+    ])
+      .then(([makes, cities]) => {
+        setBrands(makes);
+        setRegions(cities.items);
+      })
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(e.message);
       });
@@ -140,7 +141,8 @@ export function SearchForm({
   const allowed = availableSources.filter(
     (s) =>
       support.includes(s) &&
-      (s !== "auto_ru" || !basic.region || basic.region === "москва"),
+      (regions.find((r) => r.id === basic.region)?.sources.includes(s) ??
+        false),
   );
   const chosen = sources.filter((s) => allowed.includes(s));
   function change(key: string, value: string) {
@@ -344,7 +346,7 @@ export function SearchForm({
               label="Регион"
               name="region"
               value={basic.region}
-              options={regions}
+              options={regions.map((r) => ({ value: r.id, label: r.label }))}
               onChange={(v) => change("region", v)}
             />
           </div>

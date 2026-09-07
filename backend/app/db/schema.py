@@ -112,6 +112,8 @@ jobs = sa.Table(
     sa.Column("error_code", sa.String(80)),
     sa.Column("result_count", sa.Integer),
     sa.Column("warnings", JSONB, nullable=False, server_default="[]"),
+    sa.Column("pages_checked", JSONB, nullable=False, server_default="[]"),
+    sa.Column("catalog_complete", sa.Boolean, nullable=False, server_default="false"),
     sa.UniqueConstraint("run_id", "source"),
     sa.CheckConstraint("state IN ('queued','running','complete','failed')", name="job_state"),
 )
@@ -145,6 +147,8 @@ source_states = sa.Table(
     stamp("last_success_at", nullable=True),
     sa.Column("last_error", sa.String(80)),
     sa.Column("last_result_count", sa.Integer),
+    sa.Column("scan_next_page", sa.Integer, nullable=False, server_default="2"),
+    sa.Column("scan_filters_version", sa.Integer, nullable=False, server_default="0"),
 )
 health = sa.Table(
     "source_health",
@@ -211,6 +215,8 @@ listings = sa.Table(
     stamp("first_seen_at"),
     stamp("last_seen_at"),
     sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    stamp("detail_checked_at", nullable=True),
+    stamp("detail_attempted_at", nullable=True),
     sa.UniqueConstraint("source", "source_listing_id"),
     sa.CheckConstraint("price IS NULL OR price >= 0", name="listing_price"),
     sa.CheckConstraint("mileage_km IS NULL OR mileage_km >= 0", name="listing_mileage"),

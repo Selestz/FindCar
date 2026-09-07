@@ -132,7 +132,7 @@ def liveness() -> dict[str, str]:
 def ready() -> dict[str, str]:
     with engine().connect() as conn:
         version = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar()
-        if version != "0005_query_indexes":
+        if version != "0006_search_coverage":
             raise HTTPException(503, "Необходима миграция")
     return {"status": "ready"}
 
@@ -167,6 +167,13 @@ def sources_health(user: User) -> dict[str, Any]:
         and heartbeat > t.now() - timedelta(seconds=settings().job_timeout_seconds + 60),
         "scheduler_enabled": settings().scheduler_enabled,
     }
+
+
+@app.get("/api/regions")
+def regions(user: User) -> dict[str, Any]:
+    from app.sources.regions import region_catalog
+
+    return {"items": region_catalog()}
 
 
 @app.get("/api/catalog")
@@ -206,6 +213,11 @@ def search_values(body: SearchInput) -> dict[str, Any]:
                 raise HTTPException(422, "Выберите доступную площадку")
             if not body.filters.make:
                 raise HTTPException(422, "Выберите марку автомобиля")
+            from app.sources.regions import AUTO_RU_REGIONS, DROM_REGIONS
+
+            supported_regions = DROM_REGIONS if source == Source.DROM else AUTO_RU_REGIONS
+            if body.filters.region and body.filters.region not in supported_regions:
+                raise HTTPException(422, "Город недоступен на выбранной площадке")
             try:
                 source_scope(source, body.filters.make, body.filters.model)
             except SourceFailure as exc:
@@ -380,6 +392,8 @@ def get_run(run_id: uuid.UUID, user: User) -> dict[str, Any]:
                         t.jobs.c.error_code,
                         t.jobs.c.result_count,
                         t.jobs.c.warnings,
+                        t.jobs.c.pages_checked,
+                        t.jobs.c.catalog_complete,
                         t.jobs.c.not_before,
                         t.jobs.c.attempt,
                     ).where(t.jobs.c.run_id == run_id, visible_source(t.jobs.c.source))

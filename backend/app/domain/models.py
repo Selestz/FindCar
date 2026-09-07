@@ -113,6 +113,7 @@ class NormalizedListing(Model):
     description: str | None = Field(default=None, max_length=30000)
     published_at: datetime | None = None
     observed_at: datetime
+    detail_checked_at: datetime | None = None
     status: Literal["ACTIVE", "REMOVED", "UNKNOWN"] = "UNKNOWN"
     main_image_url: str | None = None
     images: list[str] = Field(default_factory=list, max_length=6)

@@ -60,6 +60,8 @@ export interface Listing {
   body_type: string | null;
   color: string | null;
   last_seen_at: string;
+  detail_checked_at: string | null;
+  detail_attempted_at: string | null;
   favourite: boolean;
   hidden: boolean;
   cluster_first_seen_at: string;
@@ -138,6 +140,8 @@ export interface Run {
     error_code: string | null;
     result_count: number | null;
     warnings: string[];
+    pages_checked: number[];
+    catalog_complete: boolean;
     not_before: string;
     attempt: number;
   }[];

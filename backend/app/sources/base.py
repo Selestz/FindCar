@@ -31,6 +31,7 @@ class SourceCapabilities(BaseModel):
 
 class CarSourceAdapter(ABC):
     source: Source
+    enrich_details = True
 
     @abstractmethod
     async def search(self, filters: UnifiedSearchFilters, page: int = 1) -> SourcePage: ...

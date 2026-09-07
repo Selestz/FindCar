@@ -1415,3 +1415,9 @@ footer {
     scroll-behavior: auto !important;
   }
 }
+
+.check-time { margin: 8px 0; line-height: 1.55; }
+.check-context { display: block; font-size: 11px; color: var(--muted, #9ca6b0); }
+.check-stale { color: #d4b48a; }
+.coverage-status { margin: 12px 0 20px; padding: 10px 14px; border-left: 2px solid #7952e8; background: #12191e; border-radius: 4px; }
+.coverage-status p { margin: 4px 0; }

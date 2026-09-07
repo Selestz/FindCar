@@ -203,6 +203,10 @@ def test_two_sources_preserve_results_when_third_fails(client, monkeypatch):
         def rows(self):
             return super().rows()[:1]
 
+        async def get_listing(self, listing_id):
+            # This fixture exposes a real-source URL but resolves it entirely offline.
+            return self.rows()[0]
+
         def normalize(self, raw, observed_at):
             base = super().normalize(raw, observed_at).model_dump()
             url = (

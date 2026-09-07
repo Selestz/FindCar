@@ -3,6 +3,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from app.catalog import source_scope
+from app.config import settings
 from app.domain.filtering import evaluate
 from app.domain.models import NormalizedListing, Source, UnifiedSearchFilters
 from app.sources.auto_ru import parser
@@ -17,7 +18,7 @@ def search_url(filters: UnifiedSearchFilters, page: int) -> str:
     make, model = source_scope("auto_ru", filters.make, filters.model)
     if filters.region not in (None, "москва"):
         raise SourceFailure("UNSUPPORTED_REGION")
-    if page not in (1, 2):
+    if not 1 <= page <= settings().search_max_depth:
         raise SourceFailure("PAGE_LIMIT")
     query = {
         key: str(getattr(filters, key))
@@ -41,6 +42,8 @@ class AutoRuSourceAdapter(CarSourceAdapter):
 
     async def search(self, filters: UnifiedSearchFilters, page: int = 1) -> SourcePage:
         result = parser.search(await self.transport.get(search_url(filters, page)), page)
+        if not self.enrich_details:
+            return result
         for raw in result.items:
             if evaluate(filters, normalize(raw, datetime.now(UTC)))[0] == "not_matching":
                 continue
@@ -91,6 +94,6 @@ class AutoRuSourceAdapter(CarSourceAdapter):
             filters=filters,
             detail=True,
             images=True,
-            max_pages=2,
-            max_results=40,
+            max_pages=settings().search_page_limit,
+            max_results=250,
         )

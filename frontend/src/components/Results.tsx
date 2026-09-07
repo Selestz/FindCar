@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, money, type Listing, type Results as ResultData } from "../api";
 import {
   CarPreview,
+  CheckTime,
   date,
   Description,
   display,
@@ -242,6 +243,7 @@ export function Results({
                     : ""}
                 </span>
               </div>
+              <CheckTime car={car} />
               <Description text={car.description} compact />
               {car.match_state === "unverified" && (
                 <p className="unverified-note">

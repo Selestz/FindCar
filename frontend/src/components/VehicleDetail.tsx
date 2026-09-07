@@ -7,6 +7,7 @@ import {
 } from "../api";
 import {
   CarPreview,
+  CheckTime,
   date,
   Description,
   display,
@@ -380,11 +381,12 @@ export function VehicleDetail({
                     </span>
                   </div>
                   <p className="small muted">
-                    {l.source_listing_id} · Проверено {date(l.last_seen_at)} ·{" "}
+                    {l.source_listing_id} ·{" "}
                     {l.mileage_km?.toLocaleString("ru-RU") ??
                       "Неизвестный пробег"}{" "}
                     км
                   </p>
+                  <CheckTime car={l} />
                   <Description text={l.description} />
                   <p className="small muted">
                     Продавец:{" "}

@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     source_requests_per_hour: int = Field(default=120, ge=10, le=1000)
     retry_base_seconds: int = Field(default=60, ge=1, le=600)
     max_job_attempts: int = Field(default=3, ge=1, le=5)
-    known_detail_limit: int = Field(default=3, ge=1, le=10)
+    known_detail_limit: int = Field(default=6, ge=1, le=10)
+    search_page_limit: int = Field(default=5, ge=1, le=10)
+    search_max_depth: int = Field(default=50, ge=2, le=100)
     matching: MatchingConfig = Field(default_factory=MatchingConfig)
 
 

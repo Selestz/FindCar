@@ -174,3 +174,55 @@ export function CarPreview({
     </div>
   );
 }
+
+export function CheckTime({
+  car,
+}: {
+  car: {
+    detail_checked_at: string | null;
+    detail_attempted_at: string | null;
+    last_seen_at: string;
+  };
+}) {
+  const checked = car.detail_checked_at;
+  const stale =
+    !checked || Date.now() - Date.parse(checked) > 6 * 60 * 60 * 1000;
+  const failed =
+    car.detail_attempted_at &&
+    (!checked || Date.parse(car.detail_attempted_at) > Date.parse(checked));
+  return (
+    <p className={"check-time small " + (stale ? "check-stale" : "muted")}>
+      {checked
+        ? "Карточка проверена " + date(checked)
+        : "Карточка ещё не проверена"}
+      {checked && stale ? " · пора обновить" : ""}
+      <span className="check-context">
+        Данные получены: {date(car.last_seen_at)}
+        {failed ? " · последняя попытка проверки не подтвердила статус" : ""}
+      </span>
+    </p>
+  );
+}
+
+export function coverageWarning(code: string): string {
+  const messages: Record<string, string> = {
+    PAGE_LIMIT: "Обход продолжится при следующем обновлении",
+    RESULT_LIMIT: "Обход продолжится при следующем обновлении",
+    DEPTH_LIMIT: "Достигнута глубина обхода; сузьте условия поиска",
+    ROTATING_SEARCH:
+      "Завершён очередной участок выдачи; следующий обход начнётся с первых страниц",
+    REPEATED_PAGE:
+      "Площадка повторила страницу; полнота выдачи не подтверждена",
+    KNOWN_DETAIL_LIMIT:
+      "Оставшиеся карточки будут проверены по очереди; избранное имеет приоритет",
+    DETAIL_LIMIT: "Оставшиеся характеристики будут проверены позже",
+    IMAGE_UNAVAILABLE: "Часть фотографий недоступна",
+    BOUNDED_SEARCH: "Проверена часть выдачи",
+  };
+  if (messages[code]) return messages[code];
+  if (code.startsWith("DETAIL_"))
+    return "Проверка карточек: " + display(code.slice(7));
+  if (code.startsWith("PARTIAL_"))
+    return "Обход прерван: " + display(code.slice(8));
+  return display(code);
+}
