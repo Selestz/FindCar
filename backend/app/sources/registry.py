@@ -8,14 +8,14 @@ from app.sources.mock.adapter import MockSourceAdapter
 
 def source_enabled(source: str) -> bool:
     return (
-        source == Source.MOCK
+        (source == Source.MOCK and settings().test_fixtures_enabled)
         or (source == Source.DROM and settings().drom_enabled)
         or (source == Source.AUTO_RU and settings().auto_ru_enabled)
     )
 
 
 def adapter_for(source: str) -> CarSourceAdapter:
-    if source == Source.MOCK:
+    if source == Source.MOCK and source_enabled(source):
         return MockSourceAdapter(settings().mock_scenario)
     if source == Source.DROM and source_enabled(source):
         return DromSourceAdapter()

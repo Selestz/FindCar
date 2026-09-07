@@ -40,7 +40,7 @@ function PriceChart({ detail }: { detail: DetailData }) {
         role="img"
         aria-label={`Цена от ${money(String(min))} до ${money(String(max))}`}
       >
-        <path d="M60 25V150H565" stroke="#ccd6d8" fill="none" />
+        <path d="M60 25V150H565" stroke="#454151" fill="none" />
         <text x="0" y="40">
           {(max / 1000000).toFixed(2)} млн
         </text>
@@ -50,9 +50,9 @@ function PriceChart({ detail }: { detail: DetailData }) {
         {detail.listings.map((listing, i) => {
           const series = points.filter((p) => p.listing_id === listing.id);
           return (
-            <g key={listing.id} fill={i % 2 ? "#6d8494" : "#167568"}>
+            <g key={listing.id} fill={i % 2 ? "#688ee0" : "#ab83f2"}>
               <polyline
-                stroke={i % 2 ? "#6d8494" : "#167568"}
+                stroke={i % 2 ? "#688ee0" : "#ab83f2"}
                 strokeWidth="2"
                 fill="none"
                 points={series
@@ -97,7 +97,8 @@ export function VehicleDetail({
     [busy, setBusy] = useState(false),
     [note, setNote] = useState(""),
     [editing, setEditing] = useState<string | null>(null),
-    [splitOpen, setSplitOpen] = useState(false);
+    [splitOpen, setSplitOpen] = useState(false),
+    [showArchived, setShowArchived] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void api<DetailData>("/vehicles/" + id, { signal: controller.signal })
@@ -219,6 +220,12 @@ export function VehicleDetail({
               </button>
             </div>
           </div>
+          {primary.status !== "ACTIVE" && (
+            <p className="warning">
+              Подтверждённых активных предложений нет. Ниже сохранена история
+              наблюдений.
+            </p>
+          )}
           <div className="detail-overview">
             <CarPreview
               title={primary.title}
@@ -344,41 +351,49 @@ export function VehicleDetail({
           </section>
           <section className="detail-section">
             <h2>Объявления и источники</h2>
-            {detail.listings.map((l) => (
-              <article className="source-listing" key={l.id}>
-                <div className="result-heading">
-                  <span className="badge">
-                    {sourceNames[l.source] || l.source}
-                  </span>
-                  <strong>{money(l.price, l.currency)}</strong>
-                  <span
-                    className={
-                      "badge " + (l.status === "ACTIVE" ? "positive" : "")
-                    }
-                  >
-                    {display(l.display_status || l.status)}
-                  </span>
-                </div>
-                <p className="small muted">
-                  {l.source_listing_id} · Проверено {date(l.last_seen_at)} ·{" "}
-                  {l.mileage_km?.toLocaleString("ru-RU") ??
-                    "Неизвестный пробег"}{" "}
-                  км
-                </p>
-                <Description text={l.description} />
-                <p className="small muted">
-                  Продавец:{" "}
-                  {l.seller_type === "private"
-                    ? "частное лицо"
-                    : l.seller_type === "dealer"
-                      ? "дилер"
-                      : "тип не указан"}
-                </p>
-                {l.source === "mock" ? (
+            {detail.listings.some((l) => l.status !== "ACTIVE") && (
+              <label className="checkbox small">
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={(e) => setShowArchived(e.target.checked)}
+                />
+                Показать снятые и непроверенные объявления (
+                {detail.listings.filter((l) => l.status !== "ACTIVE").length})
+              </label>
+            )}
+            {detail.listings
+              .filter((l) => showArchived || l.status === "ACTIVE")
+              .map((l) => (
+                <article className="source-listing" key={l.id}>
+                  <div className="result-heading">
+                    <span className="badge">
+                      {sourceNames[l.source] || l.source}
+                    </span>
+                    <strong>{money(l.price, l.currency)}</strong>
+                    <span
+                      className={
+                        "badge " + (l.status === "ACTIVE" ? "positive" : "")
+                      }
+                    >
+                      {display(l.display_status || l.status)}
+                    </span>
+                  </div>
                   <p className="small muted">
-                    Демонстрационное объявление, ссылки на продавца нет.
+                    {l.source_listing_id} · Проверено {date(l.last_seen_at)} ·{" "}
+                    {l.mileage_km?.toLocaleString("ru-RU") ??
+                      "Неизвестный пробег"}{" "}
+                    км
                   </p>
-                ) : (
+                  <Description text={l.description} />
+                  <p className="small muted">
+                    Продавец:{" "}
+                    {l.seller_type === "private"
+                      ? "частное лицо"
+                      : l.seller_type === "dealer"
+                        ? "дилер"
+                        : "тип не указан"}
+                  </p>
                   <a
                     className="external-link"
                     href={l.source_url}
@@ -387,9 +402,8 @@ export function VehicleDetail({
                   >
                     Открыть на {sourceNames[l.source] || l.source} ↗
                   </a>
-                )}
-              </article>
-            ))}
+                </article>
+              ))}
           </section>
           <section className="detail-section">
             <h2>История цены</h2>

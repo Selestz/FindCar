@@ -70,7 +70,7 @@ def test_unknowns_currency_and_explicit_removal():
     raw["car"]["offers"]["availability"] = "https://schema.org/OutOfStock"
     assert normalize(raw, datetime.now(UTC)).status == "REMOVED"
     raw.pop("detail")
-    assert normalize(raw, datetime.now(UTC)).status == "UNKNOWN"
+    assert normalize(raw, datetime.now(UTC)).status == "REMOVED"
     with pytest.raises(SourceFailure):
         parser.detail(fixture("detail.html"), "999999999")
 
@@ -86,6 +86,15 @@ def test_filter_url_scope_and_pagination():
             search_url(filters.model_copy(update=changes), 1)
     with pytest.raises(SourceFailure, match="SEARCH_SCOPE_REQUIRED"):
         search_url(UnifiedSearchFilters(), 1)
+
+
+def test_sold_badge_overrides_stale_structured_availability():
+    html = fixture("search.html").replace(
+        '<div data-ftid="bulls-list_bull">',
+        '<div data-ftid="bulls-list_bull"><span data-ftid="bull_sold">снят с продажи</span>',
+        1,
+    )
+    assert normalize(parser.search(html, 1).items[0], datetime.now(UTC)).status == "REMOVED"
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ from sqlalchemy.engine import Connection
 
 from app.db import schema as t
 from app.services.searches import owned
+from app.services.visibility import visible_source
 
 CHANGES = ["PRICE_DROP", "PRICE_INCREASE", "LISTING_REMOVED", "LISTING_RETURNED", "PROBABLE_RELIST"]
 
@@ -23,7 +24,12 @@ def vehicle_page(
     sort: str,
 ) -> dict[str, Any]:
     joined = t.listings.join(t.memberships).join(t.clusters, t.memberships.c.cluster_id == t.clusters.c.id)
-    conditions = [t.memberships.c.user_id == user_id, t.clusters.c.archived_at.is_(None)]
+    conditions = [
+        t.memberships.c.user_id == user_id,
+        t.clusters.c.archived_at.is_(None),
+        t.listings.c.status == "ACTIVE",
+        visible_source(t.listings.c.source),
+    ]
     state: Any = sa.literal("confirmed")
     unknown: Any = sa.literal([], type_=JSONB)
     if search_id:
@@ -46,6 +52,7 @@ def vehicle_page(
 
     def event_value(types: list[str], unread: bool = False, amount: bool = False) -> Any:
         membership = t.memberships.alias()
+        event_listing = t.listings.alias()
         value = (
             (
                 sa.cast(t.events.c.payload["old_price"].astext, sa.Numeric)
@@ -63,16 +70,19 @@ def vehicle_page(
                         membership.c.listing_id == t.events.c.listing_id,
                         membership.c.user_id == t.events.c.user_id,
                     ),
-                )
+                ).join(event_listing, event_listing.c.id == t.events.c.listing_id)
             )
             .where(
                 t.events.c.user_id == user_id,
                 membership.c.cluster_id == t.clusters.c.id,
                 t.events.c.type.in_(types),
+                visible_source(event_listing.c.source),
             )
         )
         if unread:
             query = query.where(t.events.c.read_at.is_(None))
+        if types == ["PRICE_DROP"]:
+            query = query.where(event_listing.c.status == "ACTIVE")
         return (
             query.order_by(t.events.c.occurred_at.desc(), t.events.c.id)
             .limit(1)

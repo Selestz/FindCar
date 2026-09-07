@@ -8,7 +8,6 @@ import {
 import {
   api,
   ApiError,
-  money,
   type Filters,
   type SavedSearch,
   type Results as ResultData,
@@ -22,6 +21,7 @@ import { Duplicates } from "./Duplicates";
 import { VehicleDetail } from "./VehicleDetail";
 import { Events } from "./Events";
 import { Sources } from "./Sources";
+import { Icon } from "./Icon";
 import { Monitoring } from "./Monitoring";
 import { date, display, sourceNames } from "../presentation";
 function navigate(url: string) {
@@ -72,11 +72,12 @@ export function Workspace({
     [results, setResults] = useState<ResultData | null>(null),
     [run, setRun] = useState<Run | null>(null),
     [runId, setRunId] = useState<string | null>(null),
+    [notice, setNotice] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
     [view, setView] = useState("all"),
-    [sort, setSort] = useState("found"),
+    [sort, setSort] = useState("price_asc"),
     [unverified, setUnverified] = useState(false),
     [revision, setRevision] = useState(0),
     [deleteOpen, setDeleteOpen] = useState(false),
@@ -218,6 +219,28 @@ export function Workspace({
       clearTimeout(timer);
     };
   }, [runId, refreshLists, handleError]);
+  useEffect(() => {
+    function close(event: MouseEvent | KeyboardEvent | globalThis.MouseEvent) {
+      if ("key" in event && event.key !== "Escape") return;
+      document
+        .querySelectorAll<HTMLDetailsElement>(
+          ".account-menu[open], .saved-menu[open], .card-menu[open]",
+        )
+        .forEach((menu) => {
+          if ("key" in event || !menu.contains(event.target as Node)) {
+            menu.open = false;
+            if ("key" in event)
+              menu.querySelector<HTMLElement>("summary")?.focus();
+          }
+        });
+    }
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, []);
   const changed = () => setRevision((n) => n + 1);
   useEffect(() => {
     if (!searchId || !isSearch || runId) return;
@@ -252,7 +275,7 @@ export function Workspace({
     returnTo.current = location;
     navigate("/vehicles/" + id);
   }
-  async function save(name: string, filters: Filters, sources: string[]) {
+  async function save(filters: Filters, sources: string[], start: boolean) {
     setBusy(true);
     setError("");
     try {
@@ -260,34 +283,39 @@ export function Workspace({
         await api("/searches/" + selected.id, {
           method: "PUT",
           body: JSON.stringify({
-            name,
             filters,
             enabled_sources: sources,
           }),
         });
         await refreshLists();
         changed();
-        const ids = await api<{ run_id: string }>(
-          "/searches/" + selected.id + "/refresh",
-          { method: "POST" },
-        );
-        setRun(null);
-        setRunId(ids.run_id);
+        if (start) {
+          const ids = await api<{ run_id: string }>(
+            "/searches/" + selected.id + "/refresh",
+            { method: "POST" },
+          );
+          setRun(null);
+          setRunId(ids.run_id);
+        }
       } else {
-        const ids = await api<{ search_id: string; run_id: string }>(
-          "/searches",
+        const ids = await api<{ search_id: string; run_id: string | null }>(
+          "/searches?start=" + start,
           {
             method: "POST",
-            body: JSON.stringify({ name, filters, enabled_sources: sources }),
+            body: JSON.stringify({ filters, enabled_sources: sources }),
           },
         );
         await refreshLists();
         navigate("/?search=" + ids.search_id);
       }
       changed();
+      setNotice(
+        start ? "" : "Поиск сохранён. Автообновление запустится по расписанию.",
+      );
     } catch (e) {
       handleError(e);
       void refreshLists().catch(handleError);
+      throw e;
     } finally {
       setBusy(false);
     }
@@ -352,182 +380,245 @@ export function Workspace({
   const running =
     !!runId && (!run || ["pending", "running"].includes(run.outcome));
   const viewNames: Record<string, string> = {
-    all: "Все",
+    all: "В продаже",
     new: "Новые",
     favourites: "Избранное",
     hidden: "Скрытые",
     changed: "Изменившиеся",
   };
+  const title =
+    path === "/favourites"
+      ? "Избранное"
+      : path === "/hidden"
+        ? "Скрытые автомобили"
+        : selected?.name || "Поиск автомобилей";
   return (
     <>
       <a href="#main-content" className="skip-link">
         Перейти к содержимому
       </a>
-      <header>
+      <header className="app-header">
         <Link to="/">
           <span className="wordmark">
-            findcar<span className="wordmark-dot">.</span>
+            find<span>car</span>
           </span>
         </Link>
-        <span className="header-caption">
-          Автомобиль один. Объявлений — несколько.
-        </span>
-        <div>
-          <span className="small">{user.username}</span>
-          <button className="text-button" onClick={onLogout}>
-            Выйти
-          </button>
-        </div>
-      </header>
-      <div className="layout">
-        <aside>
-          <nav aria-label="Разделы">
-            <Link to="/" active={isSearch}>
-              Поиск автомобилей
-            </Link>
-            <Link to="/favourites" active={path === "/favourites"}>
-              ♡ Избранное
-            </Link>
-            <Link to="/hidden" active={path === "/hidden"}>
-              Скрытые
-            </Link>
-            <Link to="/duplicates" active={path === "/duplicates"}>
-              Проверка дублей
-            </Link>
-            <Link to="/events" active={path === "/events"}>
-              Изменения
-            </Link>
-            <Link to="/sources" active={path === "/sources"}>
-              Источники
-            </Link>
-          </nav>
-          <div className="sidebar-heading">
-            <h2>Мои поиски</h2>
-            <Link to="/search/new">+ Новый</Link>
+        <nav aria-label="Разделы" className="main-nav">
+          <Link to="/" active={isSearch}>
+            Поиск
+          </Link>
+          <Link to="/favourites" active={path === "/favourites"}>
+            Избранное
+          </Link>
+          <Link to="/events" active={path === "/events"}>
+            Изменения
+          </Link>
+          <Link to="/sources" active={path === "/sources"}>
+            Источники
+          </Link>
+        </nav>
+        <details className="account-menu" key={location}>
+          <summary aria-label="Меню пользователя" className="avatar">
+            {user.username.slice(0, 2).toUpperCase()}
+          </summary>
+          <div className="popover">
+            <strong>{user.username}</strong>
+            <Link to="/hidden">Скрытые автомобили</Link>
+            <Link to="/duplicates">Проверка дублей</Link>
+            <button className="text-button" onClick={onLogout}>
+              Выйти
+            </button>
           </div>
-          <nav aria-label="Сохранённые поиски" className="saved-searches">
-            {searches.map((s) => (
-              <Link
-                to={"/?search=" + s.id}
-                key={s.id}
-                active={selected?.id === s.id && isSearch}
-              >
-                {s.name}
-              </Link>
-            ))}
-            {!initial && searches.length === 0 && (
-              <p className="small muted">
-                Сохраните условия — к ним будет легко вернуться.
+        </details>
+      </header>
+      <main className="workspace" id="main-content" tabIndex={-1}>
+        {error && (
+          <div className="error" role="alert">
+            {error}
+            <button
+              className="text-button"
+              onClick={() => {
+                setError("");
+                changed();
+                void refreshLists().catch(handleError);
+              }}
+            >
+              Повторить
+            </button>
+          </div>
+        )}
+        {notice && (
+          <div className="status dismissible" role="status">
+            {notice}
+            <button
+              className="icon-button"
+              aria-label="Закрыть сообщение"
+              onClick={() => setNotice("")}
+            >
+              <Icon name="close" />
+            </button>
+          </div>
+        )}
+        {clusterId ? (
+          <VehicleDetail
+            key={clusterId}
+            id={clusterId}
+            onClose={() => navigate(returnTo.current)}
+            onChanged={changed}
+          />
+        ) : path === "/sources" ? (
+          <Sources
+            health={health}
+            busy={busy}
+            onRefresh={() => {
+              setBusy(true);
+              void refreshLists()
+                .catch(handleError)
+                .finally(() => setBusy(false));
+            }}
+          />
+        ) : path === "/events" ? (
+          <Events onOpen={open} onChanged={changed} />
+        ) : path === "/duplicates" ? (
+          <>
+            <h1>Проверка дублей</h1>
+            <Duplicates revision={revision} onChanged={changed} onOpen={open} />
+          </>
+        ) : (
+          <>
+            <h1 className="search-title">{title}</h1>
+            {isSearch &&
+              (initial ? (
+                <p role="status">Загружаем поиск…</p>
+              ) : (
+                <SearchForm
+                  key={selected?.id || path}
+                  selected={selected}
+                  busy={busy || running}
+                  onSubmit={save}
+                  availableSources={health?.items
+                    .filter((s) => s.enabled)
+                    .map((s) => s.source)}
+                />
+              ))}
+            {running && (
+              <p className="status" role="status">
+                Получаем и сравниваем объявления…
               </p>
             )}
-          </nav>
-          <section className="sources">
-            <Link to="/sources" active={path === "/sources"}>
-              Источники →
-            </Link>
-            {health?.items.map((s) => (
-              <div className="source" key={s.source}>
-                <strong>{sourceNames[s.source]}</strong>
-                <span
-                  className={
-                    s.enabled && s.status === "OK" ? "source-online" : ""
-                  }
-                >
-                  {display(s.status)}
-                </span>
+            {run?.outcome === "failed" && (
+              <p className="error" role="alert">
+                Не удалось обновить поиск. Сохранённые данные доступны.
+              </p>
+            )}
+            <section aria-label="Результаты поиска">
+              <div className="results-toolbar">
+                <div className="result-controls">
+                  {isSearch && (
+                    <select
+                      aria-label="Показать автомобили"
+                      value={view}
+                      onChange={(e) => setView(e.target.value)}
+                    >
+                      {Object.entries(viewNames).map(([value, label]) => (
+                        <option value={value} key={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <select
+                    aria-label="Сортировка"
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value)}
+                  >
+                    <option value="price_asc">Сначала дешевле</option>
+                    <option value="price_desc">Сначала дороже</option>
+                    <option value="found">Недавно найденные</option>
+                    <option value="newest">Новые публикации</option>
+                    <option value="mileage">Минимальный пробег</option>
+                    <option value="price_drop">Недавно подешевевшие</option>
+                  </select>
+                </div>
+                <details className="saved-menu" key={location}>
+                  <summary>
+                    <Icon name="bookmark" size={18} />
+                    <span>Сохранённые поиски</span>
+                    <span className="saved-count">{searches.length}</span>
+                    <Icon name="chevron" size={16} />
+                  </summary>
+                  <div className="popover">
+                    <Link to="/search/new">+ Новый поиск</Link>
+                    <nav aria-label="Сохранённые поиски">
+                      {searches.map((s) => (
+                        <Link
+                          to={"/?search=" + s.id}
+                          key={s.id}
+                          active={s.id === selected?.id}
+                        >
+                          {s.name}
+                        </Link>
+                      ))}
+                    </nav>
+                    {searches.length === 0 && (
+                      <p className="small muted">
+                        Сохраните условия, чтобы вернуться к ним позже.
+                      </p>
+                    )}
+                  </div>
+                </details>
               </div>
-            ))}
-          </section>
-        </aside>
-        <main className="workspace" id="main-content" tabIndex={-1}>
-          <div className="demo-notice">
-            <span className="demo-dot" />
-            {selected?.enabled_sources.every((s) => s === "mock")
-              ? "Демонстрационный поиск · синтетические объявления"
-              : health?.items.some((s) => s.source !== "mock" && s.enabled)
-                ? "Проверяем первые страницы выдачи · доступность источников может меняться"
-                : "Демонстрационные данные · реальные площадки ещё не подключены"}
-          </div>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-              <button
-                className="text-button"
-                onClick={() => {
-                  setError("");
-                  changed();
-                  void refreshLists().catch(handleError);
-                }}
-              >
-                Повторить загрузку
-              </button>
-            </p>
-          )}
-          {clusterId ? (
-            <VehicleDetail
-              key={clusterId}
-              id={clusterId}
-              onClose={() => navigate(returnTo.current)}
-              onChanged={changed}
-            />
-          ) : path === "/sources" ? (
-            <Sources
-              health={health}
-              busy={busy}
-              onRefresh={() => {
-                setBusy(true);
-                void refreshLists()
-                  .catch(handleError)
-                  .finally(() => setBusy(false));
-              }}
-            />
-          ) : path === "/events" ? (
-            <Events onOpen={open} onChanged={changed} />
-          ) : path === "/duplicates" ? (
-            <>
-              <h1>Проверка дублей</h1>
-              <Duplicates
-                revision={revision}
+              {isSearch && (unverified || !!results?.unverified_count) && (
+                <label className="checkbox small unverified-toggle">
+                  <input
+                    type="checkbox"
+                    checked={unverified}
+                    onChange={(e) => setUnverified(e.target.checked)}
+                  />
+                  Показать с непроверенными характеристиками (
+                  {results?.unverified_count ?? 0})
+                </label>
+              )}
+              <Results
+                key={"results-" + location}
+                data={results}
+                loading={loading || running}
+                onMore={() => void more()}
                 onChanged={changed}
                 onOpen={open}
               />
-            </>
-          ) : (
-            <>
-              <div className="detail-title">
-                <div>
-                  <div className="eyebrow">
-                    {selected && isSearch
-                      ? "Сохранённый поиск"
-                      : "Личный поиск"}
-                  </div>
-                  <h1>
-                    {path === "/favourites"
-                      ? "Избранное"
-                      : path === "/hidden"
-                        ? "Скрытые автомобили"
-                        : selected?.name || "Поиск автомобилей"}
-                  </h1>
-                  {selected && isSearch && (
-                    <p className="muted small">
-                      Проверено: {date(selected.last_checked_at)} ·{" "}
-                      {selected.filters.price_to
-                        ? "До " + money(String(selected.filters.price_to))
-                        : "Без ограничения цены"}
+            </section>
+            {run &&
+              (run.outcome === "partial" ||
+                run.sources.some(
+                  (s) => s.error_code || s.warnings.length > 0,
+                )) && (
+                <details className="run-details">
+                  <summary>Проверена часть объявлений · подробности</summary>
+                  {run.sources.map((s) => (
+                    <p className="small muted" key={s.source}>
+                      {sourceNames[s.source]}:{" "}
+                      {s.error_code
+                        ? display(s.error_code)
+                        : "Обработано: " + (s.result_count ?? 0)}
+                      {s.state === "queued"
+                        ? " · Повторная попытка после " + date(s.not_before)
+                        : ""}
+                      {s.warnings.length > 0
+                        ? " · Достигнут лимит проверки страниц"
+                        : ""}
                     </p>
-                  )}
-                </div>
-                {selected && isSearch && (
-                  <button
-                    className="outline"
-                    disabled={busy || running}
-                    onClick={() => void refresh()}
-                  >
-                    Обновить сейчас
-                  </button>
-                )}
-              </div>
-              {selected && isSearch && (
+                  ))}
+                </details>
+              )}
+            {selected && isSearch && (
+              <details className="search-settings">
+                <summary>
+                  Расписание и настройки поиска
+                  <span className="small muted">
+                    Проверено: {date(selected.last_checked_at)}
+                  </span>
+                </summary>
                 <Monitoring
                   key={selected.id}
                   search={selected}
@@ -535,160 +626,50 @@ export function Workspace({
                   onChanged={refreshLists}
                   onError={handleError}
                 />
-              )}
-              {isSearch &&
-                (initial ? (
-                  <p role="status">Загружаем доступные источники…</p>
-                ) : selected ? (
-                  <details className="search-editor">
-                    <summary>Изменить условия поиска</summary>
-                    <SearchForm
-                      key={selected.id}
-                      selected={selected}
-                      busy={busy || running}
-                      onSubmit={save}
-                      availableSources={health?.items
-                        .filter((s) => s.enabled)
-                        .map((s) => s.source)}
-                    />
-                    <button
-                      className="text-button danger"
-                      onClick={() => setDeleteOpen(!deleteOpen)}
-                    >
-                      Удалить поиск
-                    </button>
-                    {deleteOpen && (
-                      <div className="warning">
-                        <p>
-                          Удалить «{selected.name}»? Автомобили, избранное и
-                          заметки сохранятся.
-                        </p>
-                        <button
-                          className="outline"
-                          disabled={busy}
-                          onClick={() => void remove()}
-                        >
-                          Да, удалить поиск
-                        </button>
-                        <button
-                          className="text-button"
-                          onClick={() => setDeleteOpen(false)}
-                        >
-                          Отмена
-                        </button>
-                      </div>
-                    )}
-                  </details>
-                ) : (
-                  <SearchForm
-                    key={path}
-                    selected={null}
-                    busy={busy || running}
-                    onSubmit={save}
-                    availableSources={health?.items
-                      .filter((s) => s.enabled)
-                      .map((s) => s.source)}
-                  />
-                ))}
-              {running && (
-                <p className="status" role="status">
-                  Получаем и сравниваем объявления…
-                </p>
-              )}
-              {run?.outcome === "partial" && (
-                <p className="warning">
-                  Получена часть результатов. Некоторые источники недоступны.
-                </p>
-              )}
-              {run?.outcome === "failed" && (
-                <p className="error" role="alert">
-                  Не удалось обновить поиск. Сохранённые данные доступны.
-                </p>
-              )}
-              {run?.sources
-                .filter((s) => s.error_code)
-                .map((s) => (
-                  <p className="warning" key={s.source}>
-                    {sourceNames[s.source]}: {display(s.error_code)}
-                    {s.state === "queued" &&
-                      ` · Повторная попытка не раньше ${date(s.not_before)}`}
-                  </p>
-                ))}
-              {run?.sources.some((s) => s.warnings.length > 0) && (
-                <p className="warning">Проверена ограниченная часть выдачи.</p>
-              )}
-              {(searchId || !isSearch) && (
-                <section aria-label="Результаты поиска">
-                  <div className="results-toolbar">
-                    {isSearch && (
-                      <div
-                        className="view-tabs"
-                        aria-label="Фильтр результатов"
+                <div className="decision-actions">
+                  <button
+                    className="outline"
+                    disabled={busy || running}
+                    onClick={() => void refresh()}
+                  >
+                    Обновить сейчас
+                  </button>
+                  <button
+                    className="text-button danger"
+                    onClick={() => setDeleteOpen(!deleteOpen)}
+                  >
+                    Удалить поиск
+                  </button>
+                </div>
+                {deleteOpen && (
+                  <div className="warning">
+                    <p>
+                      Удалить «{selected.name}»? Автомобили, избранное и заметки
+                      сохранятся.
+                    </p>
+                    <div className="decision-actions">
+                      <button
+                        className="outline"
+                        disabled={busy}
+                        onClick={() => void remove()}
                       >
-                        {Object.entries(viewNames).map(([value, label]) => (
-                          <button
-                            key={value}
-                            className={view === value ? "active" : ""}
-                            aria-pressed={view === value}
-                            onClick={() => setView(value)}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <label className="sort-label">
-                      Сортировка
-                      <select
-                        value={sort}
-                        onChange={(e) => setSort(e.target.value)}
+                        Да, удалить поиск
+                      </button>
+                      <button
+                        className="text-button"
+                        onClick={() => setDeleteOpen(false)}
                       >
-                        <option value="found">Недавно найденные</option>
-                        <option value="newest">Новые публикации</option>
-                        <option value="price_asc">Сначала дешевле</option>
-                        <option value="price_desc">Сначала дороже</option>
-                        <option value="mileage">Минимальный пробег</option>
-                        <option value="price_drop">Недавно подешевевшие</option>
-                      </select>
-                    </label>
+                        Отмена
+                      </button>
+                    </div>
                   </div>
-                  {isSearch && (
-                    <label className="checkbox small">
-                      <input
-                        type="checkbox"
-                        checked={unverified}
-                        onChange={(e) => setUnverified(e.target.checked)}
-                      />
-                      Показать непроверенные
-                      {results ? " (" + results.unverified_count + ")" : ""}
-                    </label>
-                  )}
-                  <Results
-                    key={"results-" + location}
-                    data={results}
-                    loading={loading}
-                    onMore={() => void more()}
-                    onChanged={changed}
-                    onOpen={open}
-                  />
-                </section>
-              )}
-              {isSearch && (
-                <Events
-                  key={"recent-" + revision}
-                  compact
-                  onOpen={open}
-                  onChanged={changed}
-                />
-              )}
-            </>
-          )}
-          <footer>
-            Личный поиск автомобилей. Сравнивайте объявления и проверяйте
-            сведения у продавца.
-          </footer>
-        </main>
-      </div>
+                )}
+              </details>
+            )}
+          </>
+        )}
+        <footer>Findcar · Ваши поиски, избранное и история автомобилей</footer>
+      </main>
     </>
   );
 }

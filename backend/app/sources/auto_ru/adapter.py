@@ -1,8 +1,8 @@
-import re
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
 
+from app.catalog import source_scope
 from app.domain.filtering import evaluate
 from app.domain.models import NormalizedListing, Source, UnifiedSearchFilters
 from app.sources.auto_ru import parser
@@ -12,10 +12,9 @@ from app.sources.base import CarSourceAdapter, SourceCapabilities, SourceFailure
 
 
 def search_url(filters: UnifiedSearchFilters, page: int) -> str:
-    if not filters.make or not filters.model:
+    if not filters.make:
         raise SourceFailure("SEARCH_SCOPE_REQUIRED")
-    if not all(re.fullmatch(r"[a-z0-9_-]{1,80}", x) for x in (filters.make, filters.model)):
-        raise SourceFailure("UNSUPPORTED_FILTER")
+    make, model = source_scope("auto_ru", filters.make, filters.model)
     if filters.region not in (None, "москва"):
         raise SourceFailure("UNSUPPORTED_REGION")
     if page not in (1, 2):
@@ -28,7 +27,7 @@ def search_url(filters: UnifiedSearchFilters, page: int) -> str:
     if page > 1:
         query["page"] = str(page)
     return (
-        f"https://auto.ru/{'moskva/' if filters.region else ''}cars/{filters.make}/{filters.model}/used/"
+        f"https://auto.ru/{'moskva/' if filters.region else ''}cars/{make}/{model + '/' if model else ''}used/"
         + ("?" + urlencode(query) if query else "")
     )
 

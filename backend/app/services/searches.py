@@ -27,6 +27,12 @@ def next_refresh(interval: int) -> Any:
 
 
 def enqueue(conn: Connection, search: dict[str, Any], *, scheduled: bool = False) -> uuid.UUID:
+    if not settings().test_fixtures_enabled:
+        search = search | {
+            "enabled_sources": [s for s in search["enabled_sources"] if s in {"drom", "auto_ru"}]
+        }
+        if not search["enabled_sources"]:
+            raise HTTPException(422, "В поиске нет доступных площадок")
     existing = conn.execute(
         sa.select(t.jobs.c.run_id).where(
             t.jobs.c.search_id == search["id"], t.jobs.c.state.in_(["queued", "running"])

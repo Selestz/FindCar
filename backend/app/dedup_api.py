@@ -11,6 +11,7 @@ from app.db import schema as t
 from app.db.connection import engine
 from app.services.matching import merge, reject, split
 from app.services.searches import owned
+from app.services.visibility import visible_source
 
 router = APIRouter(prefix="/api")
 User = Annotated[dict[str, Any], Depends(require_user)]
@@ -76,6 +77,8 @@ def duplicates(
             .join(rl, rl.c.id == t.candidates.c.right_id)
             .where(
                 t.candidates.c.user_id == user["id"],
+                visible_source(ll.c.source),
+                visible_source(rl.c.source),
                 t.candidates.c.decision == "possible_duplicate",
                 lm.c.cluster_id != rm.c.cluster_id,
                 sa.or_(

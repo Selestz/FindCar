@@ -161,7 +161,8 @@ def test_auto_merge_idempotency_projection_and_case3(client, db):
         cluster_id = next(iter(versions(conn, db["alice"])))
     detail = client.get(f"/api/vehicles/{cluster_id}").json()
     assert len(detail["listings"]) == 2 and any(r["display_status"] == "RELISTED" for r in detail["listings"])
-    assert client.get("/api/vehicles", params={"search_id": str(search_id)}).json()["total"] == 1
+    # This search only observed the removed offer. Its history remains on the detail page.
+    assert client.get("/api/vehicles", params={"search_id": str(search_id)}).json()["total"] == 0
 
 
 def test_case5_transitive_rejection_and_split_durability(db):
@@ -310,7 +311,9 @@ def test_manual_state_preserved_and_no_relist_without_removal(db):
 def test_worker_dedup_scenario(client, db, monkeypatch):
     monkeypatch.setenv("MOCK_SCENARIO", "dedup")
     settings.cache_clear()
-    response = client.post("/api/searches", json={"name": "Dedup demo", "filters": {}})
+    response = client.post(
+        "/api/searches", json={"name": "Dedup demo", "filters": {}, "enabled_sources": ["mock"]}
+    )
     assert response.status_code == 201
     assert asyncio.run(run_once())
     search_id = response.json()["search_id"]

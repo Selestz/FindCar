@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.auth.security import COOKIE, authenticate, digest, hasher, issue_session, require_user
+from app.catalog import catalogue, makes, models, search_name, source_scope
 from app.config import settings
 from app.db import schema as t
 from app.db.connection import engine
@@ -19,7 +20,7 @@ from app.domain.models import SearchInput, Source
 from app.http_security import RequestBodyLimit
 from app.services.searches import enqueue, next_refresh, owned
 from app.services.vehicles import vehicle_page
-from app.sources.mock.adapter import MockSourceAdapter
+from app.services.visibility import visible_source
 from app.workspace_api import router as workspace_router
 
 app = FastAPI(title="FindCar", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
@@ -146,6 +147,8 @@ def sources_health(user: User) -> dict[str, Any]:
         limits = {r["source"]: r for r in conn.execute(sa.select(t.source_limits)).mappings()}
     result = []
     for source in Source:
+        if source in {Source.MOCK, Source.AVITO} and not settings().test_fixtures_enabled:
+            continue
         entry: dict[str, Any] = {
             "source": source.value,
             "enabled": source_enabled(source),
@@ -163,12 +166,58 @@ def sources_health(user: User) -> dict[str, Any]:
         "worker_alive": heartbeat is not None
         and heartbeat > t.now() - timedelta(seconds=settings().job_timeout_seconds + 60),
         "scheduler_enabled": settings().scheduler_enabled,
-        "mock_capabilities": MockSourceAdapter().capabilities(),
     }
 
 
+@app.get("/api/catalog")
+def make_catalog(user: User) -> dict[str, Any]:
+    return {
+        "updated_at": catalogue()["updated_at"],
+        "items": [
+            {
+                "id": m["id"],
+                "label": m["label"],
+                "sources": list(m["sources"]),
+                "model_count": len(m["models"]),
+            }
+            for m in makes().values()
+        ],
+    }
+
+
+@app.get("/api/catalog/{make}")
+def model_catalog(make: str, user: User) -> dict[str, Any]:
+    if make not in makes():
+        raise HTTPException(404, "Марка не найдена")
+    return {
+        "items": [
+            {"id": m["id"], "label": m["label"], "sources": list(m["sources"])} for m in models(make).values()
+        ]
+    }
+
+
+def search_values(body: SearchInput) -> dict[str, Any]:
+    from app.sources.base import SourceFailure
+    from app.sources.registry import source_enabled
+
+    if not settings().test_fixtures_enabled:
+        for source in body.enabled_sources:
+            if source not in {Source.DROM, Source.AUTO_RU} or not source_enabled(source):
+                raise HTTPException(422, "Выберите доступную площадку")
+            if not body.filters.make:
+                raise HTTPException(422, "Выберите марку автомобиля")
+            try:
+                source_scope(source, body.filters.make, body.filters.model)
+            except SourceFailure as exc:
+                raise HTTPException(422, "Эта модель недоступна на выбранной площадке") from exc
+    values = body.model_dump(mode="json")
+    values["name"] = search_name(values["filters"])
+    return values
+
+
 @app.post("/api/searches", status_code=201)
-def create_search(body: SearchInput, user: User) -> dict[str, Any]:
+def create_search(body: SearchInput, user: User, start: bool = True) -> dict[str, Any]:
+    values = search_values(body)
     with engine().begin() as conn:
         conn.execute(sa.select(t.users.c.id).where(t.users.c.id == user["id"]).with_for_update()).one()
         if (
@@ -180,10 +229,10 @@ def create_search(body: SearchInput, user: User) -> dict[str, Any]:
             raise HTTPException(409, "Лимит: 30 сохранённых поисков")
         search_id = conn.execute(
             t.searches.insert()
-            .values(user_id=user["id"], **body.model_dump(mode="json"))
+            .values(user_id=user["id"], **values, next_refresh_at=next_refresh(1500))
             .returning(t.searches.c.id)
         ).scalar_one()
-        run_id = enqueue(conn, owned(conn, search_id, user["id"]))
+        run_id = enqueue(conn, owned(conn, search_id, user["id"])) if start else None
     return {"search_id": search_id, "run_id": run_id}
 
 
@@ -194,10 +243,21 @@ def list_searches(user: User) -> dict[str, Any]:
             dict(r)
             for r in conn.execute(
                 sa.select(t.searches)
-                .where(t.searches.c.user_id == user["id"])
+                .where(
+                    t.searches.c.user_id == user["id"],
+                    sa.or_(
+                        sa.literal(settings().test_fixtures_enabled),
+                        t.searches.c.enabled_sources.op("?")("drom"),
+                        t.searches.c.enabled_sources.op("?")("auto_ru"),
+                    ),
+                )
                 .order_by(t.searches.c.created_at.desc())
             ).mappings()
         ]
+    for row in rows:
+        row["name"] = search_name(row["filters"])
+        if not settings().test_fixtures_enabled:
+            row["enabled_sources"] = [s for s in row["enabled_sources"] if s in {"drom", "auto_ru"}]
     return {"items": rows}
 
 
@@ -205,10 +265,17 @@ def list_searches(user: User) -> dict[str, Any]:
 def get_search(search_id: uuid.UUID, user: User) -> dict[str, Any]:
     with engine().connect() as conn:
         result = owned(conn, search_id, user["id"])
+        result["name"] = search_name(result["filters"])
+        if not settings().test_fixtures_enabled:
+            result["enabled_sources"] = [s for s in result["enabled_sources"] if s in {"drom", "auto_ru"}]
+            if not result["enabled_sources"]:
+                raise HTTPException(404, "Поиск не найден")
         result["sources"] = [
             dict(r)
             for r in conn.execute(
-                sa.select(t.source_states).where(t.source_states.c.search_id == search_id)
+                sa.select(t.source_states).where(
+                    t.source_states.c.search_id == search_id, visible_source(t.source_states.c.source)
+                )
             ).mappings()
         ]
         result["latest_run"] = conn.execute(
@@ -222,6 +289,7 @@ def get_search(search_id: uuid.UUID, user: User) -> dict[str, Any]:
 
 @app.put("/api/searches/{search_id}")
 def edit_search(search_id: uuid.UUID, body: SearchInput, user: User) -> dict[str, Any]:
+    values = search_values(body)
     with engine().begin() as conn:
         search = owned(conn, search_id, user["id"], lock=True)
         if conn.execute(
@@ -234,7 +302,7 @@ def edit_search(search_id: uuid.UUID, body: SearchInput, user: User) -> dict[str
             t.searches.update()
             .where(t.searches.c.id == search_id)
             .values(
-                **body.model_dump(mode="json"),
+                **values,
                 filters_version=search["filters_version"]
                 + int(
                     search["filters"] != body.filters.model_dump(mode="json")
@@ -314,7 +382,7 @@ def get_run(run_id: uuid.UUID, user: User) -> dict[str, Any]:
                         t.jobs.c.warnings,
                         t.jobs.c.not_before,
                         t.jobs.c.attempt,
-                    ).where(t.jobs.c.run_id == run_id)
+                    ).where(t.jobs.c.run_id == run_id, visible_source(t.jobs.c.source))
                 ).mappings()
             ]
         }
@@ -350,7 +418,11 @@ def vehicle_detail(cluster_id: uuid.UUID, user: User) -> dict[str, Any]:
             for r in conn.execute(
                 sa.select(t.listings, t.memberships.c.attached_at)
                 .join(t.memberships)
-                .where(t.memberships.c.cluster_id == cluster_id, t.memberships.c.user_id == user["id"])
+                .where(
+                    t.memberships.c.cluster_id == cluster_id,
+                    t.memberships.c.user_id == user["id"],
+                    visible_source(t.listings.c.source),
+                )
                 .order_by(
                     (t.listings.c.status == "ACTIVE").desc(),
                     t.listings.c.last_seen_at.desc(),
@@ -369,6 +441,7 @@ def vehicle_detail(cluster_id: uuid.UUID, user: User) -> dict[str, Any]:
                     t.memberships.c.cluster_id == cluster_id,
                     t.memberships.c.user_id == user["id"],
                     t.snapshots.c.observed_at >= t.memberships.c.attached_at,
+                    t.snapshots.c.listing_id.in_([row["id"] for row in rows]),
                 )
                 .order_by(t.snapshots.c.observed_at.desc())
                 .limit(100)

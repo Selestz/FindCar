@@ -26,6 +26,7 @@ def db(monkeypatch):
     monkeypatch.setenv("COOKIE_SECURE", "false")  # TestClient uses HTTP; HTTPS has a separate test.
     monkeypatch.setenv("MANUAL_REFRESH_COOLDOWN", "0")
     monkeypatch.setenv("MOCK_SCENARIO", "normal")
+    monkeypatch.setenv("TEST_FIXTURES_ENABLED", "true")
     monkeypatch.setenv("DROM_ENABLED", "false")
     monkeypatch.setenv("AUTO_RU_ENABLED", "false")
     settings.cache_clear()

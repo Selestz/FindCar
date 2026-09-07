@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from app.catalog import canonical_names
 from app.domain.models import NormalizedListing, Source
 from app.sources.auto_ru.parser import PARSER_VERSION
 from app.sources.images import allowed_image
@@ -11,18 +12,19 @@ from app.sources.images import allowed_image
 def normalize(raw: dict[str, Any], observed_at: datetime) -> NormalizedListing:
     offer, specs = raw["offer"], raw.get("specs", {})
     title = raw["title"].split(",")[0]
+    make, model = canonical_names("auto_ru", raw["make"], raw["model"])
     values: dict[str, Any] = {
         "source": Source.AUTO_RU,
         "source_listing_id": raw["source_listing_id"],
         "source_url": raw["source_url"],
         "title": title,
-        "make": raw["make"],
-        "model": raw["model"],
+        "make": make,
+        "model": model,
         "observed_at": observed_at,
         "parser_version": PARSER_VERSION,
         "status": "ACTIVE" if offer.get("availability", "").endswith("/InStock") else "UNKNOWN",
     }
-    if raw.get("detail") and offer.get("availability", "").endswith(("/SoldOut", "/OutOfStock")):
+    if offer.get("availability", "").endswith(("/SoldOut", "/OutOfStock")):
         values["status"] = "REMOVED"
     if "price" in offer:
         values["price"] = Decimal(str(offer["price"])) if offer["price"] is not None else None
@@ -88,4 +90,6 @@ def normalize(raw: dict[str, Any], observed_at: datetime) -> NormalizedListing:
         urls = list(photos.values())[:6]
         values.update(images=urls, main_image_url=urls[0])
     values["field_presence"] = set(values) - {"observed_at", "parser_version"}
+    if not raw.get("detail") and values["status"] != "REMOVED":
+        values["field_presence"].discard("status")
     return NormalizedListing.model_validate(values)

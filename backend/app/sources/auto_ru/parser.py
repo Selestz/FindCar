@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 from app.sources.base import SourceFailure, SourcePage
 from app.sources.html import Node, Tree
 
-PARSER_VERSION = "autoru-html-1"
+PARSER_VERSION = "autoru-html-2"
 
 
 def classified(root: Node, prefix: str) -> list[Node]:

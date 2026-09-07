@@ -6,8 +6,8 @@ import {
   Description,
   display,
   sourceNames,
-  listingCount,
 } from "../presentation";
+import { Icon } from "./Icon";
 export function Results({
   data,
   loading,
@@ -68,10 +68,18 @@ export function Results({
   }
   if (!data)
     return (
-      <div className="empty" role="status">
-        {loading
-          ? "Загружаем автомобили…"
-          : "Выберите сохранённый поиск или задайте свои условия."}
+      <div className="empty-state" role="status">
+        <Icon name="filter" size={28} />
+        <h2>
+          {loading
+            ? "Ищем подходящие автомобили…"
+            : "Ваш следующий автомобиль — здесь"}
+        </h2>
+        <p>
+          {loading
+            ? "Объявления появятся по мере проверки площадок."
+            : "Выберите марку, модель и бюджет. Мы соберём объявления с разных площадок и объединим повторяющиеся."}
+        </p>
       </div>
     );
   return (
@@ -86,166 +94,181 @@ export function Results({
           {error}
         </p>
       )}
-      <div className="list-summary">
-        <span>
-          Найдено автомобилей: <strong>{data.total}</strong>
-        </span>
-        <span className="small muted">Один автомобиль — одна строка</span>
-      </div>
-      {chosen.length >= 2 && (
+      {selected.length > 0 && (
         <div className="merge-selection">
+          <span>Выбрано: {chosen.length}</span>
           <button
-            disabled={busy || chosen.length > 10}
+            disabled={busy || chosen.length < 2 || chosen.length > 10}
             onClick={() => void merge()}
           >
-            Объединить выбранные ({chosen.length})
+            Объединить выбранные
           </button>
-          <label className="checkbox">
+          <button
+            className="text-button"
+            onClick={() => {
+              setSelected([]);
+              setOverride(false);
+            }}
+          >
+            Отменить выбор
+          </button>
+          <label className="checkbox small">
             <input
               type="checkbox"
               checked={override}
               onChange={(e) => setOverride(e.target.checked)}
             />
-            Заменить предыдущие решения «разные автомобили» для выбранных
+            Заменить предыдущие решения «разные автомобили»
           </label>
-          {chosen.length > 10 && <p>Выберите не более 10 автомобилей.</p>}
         </div>
       )}
-      <div className="result-list" aria-busy={loading}>
+      <div className="car-list">
         {data.items.map((car) => (
-          <article className="car" key={car.cluster_id}>
-            <CarPreview
-              title={car.title}
-              source={car.source}
-              image={
-                car.source !== "mock" && car.images?.length
-                  ? `/api/listings/${car.id}/image/0`
-                  : undefined
+          <article
+            className={
+              "car-card " + (selected.includes(car.cluster_id) ? "chosen" : "")
+            }
+            key={car.cluster_id}
+          >
+            <button
+              className="photo-link"
+              onClick={() => onOpen(car.cluster_id)}
+              aria-label={"Открыть " + car.title}
+            >
+              <CarPreview
+                title={car.title}
+                image={
+                  car.images?.length
+                    ? `/api/listings/${car.id}/image/0`
+                    : undefined
+                }
+              />
+            </button>
+            <button
+              className={
+                "favourite-button " + (car.favourite ? "is-favourite" : "")
               }
-            />
-            <div className="car-description">
-              <div className="badges">
-                {car.new_at && <span className="badge positive">Новое</span>}
-                {car.changed_at && (
-                  <span className="badge amber">Изменилось</span>
+              aria-label={
+                (car.favourite ? "Убрать " : "Добавить ") +
+                car.title +
+                (car.favourite ? " из избранного" : " в избранное")
+              }
+              aria-pressed={car.favourite}
+              disabled={busy}
+              onClick={() => void state(car, { favourite: !car.favourite })}
+            >
+              <Icon name="heart" size={24} filled={car.favourite} />
+            </button>
+            {car.price_drop_amount && (
+              <span
+                className="price-drop-badge"
+                title={"Цена снижена " + date(car.price_drop_at)}
+              >
+                ↓ {money(car.price_drop_amount)}
+              </span>
+            )}
+            <div className="car-info">
+              <div className="card-price-line">
+                <strong className="price">
+                  {car.price_min != null
+                    ? money(car.price_min)
+                    : money(car.price, car.currency)}
+                </strong>
+                {car.price_max !== car.price_min && car.price_min != null && (
+                  <span className="small muted">– {money(car.price_max)}</span>
                 )}
-                {car.status !== "ACTIVE" && (
-                  <span className="badge">{display(car.status)}</span>
-                )}
+                <details className="card-menu">
+                  <summary aria-label={"Действия с " + car.title}>
+                    <Icon name="more" />
+                  </summary>
+                  <div className="popover">
+                    <button
+                      className="text-button"
+                      onClick={() => void state(car, { hidden: !car.hidden })}
+                      disabled={busy}
+                    >
+                      {car.hidden
+                        ? "Вернуть в результаты"
+                        : "Скрыть автомобиль"}
+                    </button>
+                    <label className="checkbox small">
+                      <input
+                        type="checkbox"
+                        aria-label={`Выбрать ${car.source_listing_id} для объединения`}
+                        checked={selected.includes(car.cluster_id)}
+                        onChange={(e) =>
+                          setSelected((ids) =>
+                            e.target.checked
+                              ? [...ids, car.cluster_id]
+                              : ids.filter((id) => id !== car.cluster_id),
+                          )
+                        }
+                      />
+                      Выбрать для объединения
+                    </label>
+                  </div>
+                </details>
               </div>
-              <h3>
+              <h2>
                 <button
-                  className="title-button"
+                  className="car-title"
                   onClick={() => onOpen(car.cluster_id)}
                 >
                   {car.title}
+                  {car.year && !car.title.includes(String(car.year))
+                    ? " " + car.year
+                    : ""}
                 </button>
-              </h3>
-              <p>
-                {car.year ?? "Год не указан"} ·{" "}
-                {car.engine_volume
-                  ? Number(car.engine_volume) + " л"
-                  : "Объём не указан"}{" "}
-                · {display(car.transmission)} · {display(car.drive_type)}
-              </p>
-              <p>
-                {car.mileage_km?.toLocaleString("ru-RU") ??
-                  "Неизвестный пробег"}{" "}
-                км ·{" "}
-                {car.city === "москва"
-                  ? "Москва"
-                  : car.city || "Город не указан"}
-              </p>
-              <div className="badges">
-                {car.sources.map((s) => (
-                  <span className="source-badge" key={s}>
-                    {sourceNames[s] || s}
-                  </span>
-                ))}
-                <span className="small muted">
-                  {listingCount(car.listing_count)}
+              </h2>
+              <div className="car-specs">
+                {[
+                  car.mileage_km != null
+                    ? car.mileage_km.toLocaleString("ru-RU") + " км"
+                    : "Пробег не указан",
+                  car.engine_volume ? Number(car.engine_volume) + " л" : null,
+                  car.transmission ? display(car.transmission) : null,
+                  car.city
+                    ? car.city[0].toUpperCase() + car.city.slice(1)
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .map((text, i) => (
+                    <span key={i}>{text}</span>
+                  ))}
+                <span className="card-sources">
+                  {car.sources.map((s) => sourceNames[s] || s).join(" · ")}
+                  {car.listing_count > 1
+                    ? " · " + car.listing_count + " объявления"
+                    : ""}
                 </span>
               </div>
-              <p className="small muted">
-                Впервые замечен {date(car.cluster_first_seen_at)}
-              </p>
               <Description text={car.description} compact />
               {car.match_state === "unverified" && (
-                <p className="warning">
+                <p className="unverified-note">
                   Не проверено: {car.unknown_filters.map(display).join(", ")}
                 </p>
               )}
-              <label className="checkbox small">
-                <input
-                  type="checkbox"
-                  aria-label={`Выбрать ${car.source_listing_id} для объединения`}
-                  checked={selected.includes(car.cluster_id)}
-                  onChange={(e) =>
-                    setSelected((ids) =>
-                      e.target.checked
-                        ? [...ids, car.cluster_id]
-                        : ids.filter((id) => id !== car.cluster_id),
-                    )
-                  }
-                />
-                Сравнить и объединить
-              </label>
-            </div>
-            <div className="car-price">
-              <strong className="price">
-                {car.price_min != null
-                  ? money(car.price_min)
-                  : money(car.price, car.currency)}
-              </strong>
-              {car.price_max !== car.price_min && car.price_min != null && (
-                <p className="small muted">до {money(car.price_max)}</p>
-              )}
-              {car.price_drop_amount && (
-                <p className="price-drop">
-                  ↓ {money(car.price_drop_amount)}{" "}
-                  <span className="small">· {date(car.price_drop_at)}</span>
-                </p>
-              )}
-              <div className="car-actions">
-                <button
-                  className="outline"
-                  aria-label={
-                    car.favourite
-                      ? `Убрать ${car.title} из избранного`
-                      : `Добавить ${car.title} в избранное`
-                  }
-                  aria-pressed={car.favourite}
-                  disabled={busy}
-                  onClick={() => void state(car, { favourite: !car.favourite })}
-                >
-                  {car.favourite ? "♥" : "♡"}
-                </button>
-                <button
-                  className="text-button"
-                  disabled={busy}
-                  onClick={() => void state(car, { hidden: !car.hidden })}
-                >
-                  {car.hidden ? "Вернуть" : "Скрыть"}
-                </button>
-                <button
-                  className="text-button"
-                  onClick={() => onOpen(car.cluster_id)}
-                >
-                  Подробнее →
-                </button>
-              </div>
             </div>
           </article>
         ))}
       </div>
-      {data.items.length === 0 && (
+      {data.items.length === 0 ? (
         <div className="empty-state">
-          <h3>Здесь пока нет автомобилей</h3>
+          <Icon name="filter" size={28} />
+          <h2>
+            {loading
+              ? "Проверяем объявления…"
+              : "Подходящих автомобилей пока нет"}
+          </h2>
           <p>
-            Измените условия или выберите другой раздел. Неизвестные
-            характеристики можно включить отдельно.
+            Попробуйте расширить годы выпуска или бюджет. Снятые с продажи
+            объявления здесь не показываются.
           </p>
         </div>
+      ) : (
+        <p className="result-count small muted">
+          В продаже: {data.total} · Показано: {data.items.length}
+        </p>
       )}
       {data.next_cursor && (
         <button

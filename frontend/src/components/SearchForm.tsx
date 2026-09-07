@@ -1,14 +1,32 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Filters, SavedSearch } from "../api";
 import { labels, sourceNames } from "../presentation";
-const ranges = [
-  ["price_from", "Цена от, ₽", "0"],
-  ["mileage_from", "Пробег от, км", "0"],
-  ["mileage_to", "Пробег до, км", "0"],
-  ["engine_volume_from", "Двигатель от, л", ".1"],
-  ["engine_volume_to", "Двигатель до, л", ".1"],
-  ["power_from", "Мощность от, л. с.", "1"],
-  ["power_to", "Мощность до, л. с.", "1"],
+import { getCatalog, type CatalogItem } from "../catalog";
+import { ComboBox, type Option } from "./ComboBox";
+import { Icon } from "./Icon";
+
+const yearOptions: Option[] = [
+  { value: "", label: "Любой" },
+  ...Array.from({ length: new Date().getFullYear() + 2 - 1886 }, (_, i) => {
+    const value = String(new Date().getFullYear() + 1 - i);
+    return { value, label: value };
+  }),
+];
+const priceOptions: Option[] = [
+  { value: "", label: "Любая" },
+  ...Array.from({ length: 1000 }, (_, i) => {
+    const value = (i + 1) * 100000;
+    return {
+      value: String(value),
+      label: value.toLocaleString("ru-RU") + " ₽",
+    };
+  }),
+];
+const regions: Option[] = [
+  { value: "", label: "Вся Россия" },
+  { value: "москва", label: "Москва" },
+  { value: "санкт-петербург", label: "Санкт-Петербург" },
+  { value: "новосибирск", label: "Новосибирск" },
 ];
 const enums: Record<string, [string, string[]]> = {
   transmission: ["Коробка передач", ["automatic", "manual", "robot", "cvt"]],
@@ -19,42 +37,150 @@ const enums: Record<string, [string, string[]]> = {
   drive_type: ["Привод", ["all", "front", "rear"]],
   steering_wheel: ["Руль", ["left", "right"]],
 };
+const defaultFilters: Filters = {
+  make: "porsche",
+  model: "panamera",
+  region: "москва",
+  price_to: "1900000",
+  year_from: 2010,
+  year_to: 2015,
+};
+
 export function SearchForm({
   selected,
   busy,
   onSubmit,
-  availableSources = ["mock"],
+  availableSources = [],
 }: {
   selected: SavedSearch | null;
   busy: boolean;
   onSubmit: (
-    name: string,
     filters: Filters,
     sources: string[],
+    start: boolean,
   ) => Promise<void>;
   availableSources?: string[];
 }) {
-  const f: Filters = selected?.filters || {
-    make: "porsche",
-    model: "panamera",
-    region: "москва",
-    price_to: "1900000",
-    year_from: 2010,
-    year_to: 2015,
-    owners_max: 5,
-  };
-  const [error, setError] = useState("");
-  const [make, setMake] = useState(String(f.make || ""));
-  const [sources, setSources] = useState<string[] | null>(
-    selected?.enabled_sources || null,
+  const form = useRef<HTMLFormElement>(null),
+    opener = useRef<HTMLButtonElement>(null);
+  const f = selected?.filters || defaultFilters;
+  const [generation, setGeneration] = useState(String(f.generation || ""));
+  const [basic, setBasic] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      [
+        "make",
+        "model",
+        "year_from",
+        "year_to",
+        "price_from",
+        "price_to",
+        "region",
+      ].map((key) => [key, String(f[key] ?? "")]),
+    ),
   );
-  const chosen =
-    sources ?? (availableSources.includes("drom") ? ["drom"] : ["mock"]);
-  function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const [brands, setBrands] = useState<CatalogItem[]>([]),
+    [models, setModels] = useState<CatalogItem[]>([]),
+    [modelLoading, setModelLoading] = useState(true);
+  const [sources, setSources] = useState<string[]>(
+    selected?.enabled_sources.filter((s) => s !== "mock") || [
+      "drom",
+      "auto_ru",
+    ],
+  );
+  const [error, setError] = useState(""),
+    [expanded, setExpanded] = useState(false),
+    [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    void getCatalog("", ctrl.signal)
+      .then(setBrands)
+      .catch((e) => {
+        if (!ctrl.signal.aborted) setError(e.message);
+      });
+    return () => ctrl.abort();
+  }, []);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    if (!basic.make) {
+      setModels([]);
+      setModelLoading(false);
+      return;
+    }
+    setModelLoading(true);
+    void getCatalog(basic.make, ctrl.signal)
+      .then((data) => {
+        if (!ctrl.signal.aborted) setModels(data);
+      })
+      .catch((e) => {
+        if (!ctrl.signal.aborted) {
+          setModels([]);
+          setError(e.message);
+        }
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setModelLoading(false);
+      });
+    return () => ctrl.abort();
+  }, [basic.make]);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const before = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    form.current
+      ?.querySelector<HTMLButtonElement>(".mobile-filter-title button")
+      ?.focus();
+    return () => {
+      document.body.style.overflow = before;
+      opener.current?.focus();
+    };
+  }, [mobileOpen]);
+  const support = basic.model
+    ? models.find((m) => m.id === basic.model)?.sources || []
+    : brands.find((m) => m.id === basic.make)?.sources || [];
+  const allowed = availableSources.filter(
+    (s) =>
+      support.includes(s) &&
+      (s !== "auto_ru" || !basic.region || basic.region === "москва"),
+  );
+  const chosen = sources.filter((s) => allowed.includes(s));
+  function change(key: string, value: string) {
+    if (key === "make" || key === "model") setGeneration("");
+    setBasic((prev) => ({
+      ...prev,
+      [key]: value,
+      ...(key === "make" ? { model: "" } : {}),
+    }));
     setError("");
-    const form = new FormData(e.currentTarget);
-    const filters: Filters = { ...f };
+  }
+  function options(items: CatalogItem[], any: string): Option[] {
+    return [
+      { value: "", label: any },
+      ...items.map((item) => ({ value: item.id, label: item.label })),
+    ];
+  }
+  function input(key: string, label: string, min = "0", step = "1") {
+    return (
+      <label key={key}>
+        {label}
+        <input
+          name={key}
+          type="number"
+          min={min}
+          step={step}
+          defaultValue={String(f[key] ?? "")}
+        />
+      </label>
+    );
+  }
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (!chosen.length) {
+      setError("Выберите площадку, доступную для этой модели и региона");
+      return;
+    }
+    const data = new FormData(event.currentTarget),
+      filters: Filters = { ...f };
     const numbers = new Set([
       "year_from",
       "year_to",
@@ -64,15 +190,14 @@ export function SearchForm({
       "power_from",
       "power_to",
     ]);
-    for (const [key, value] of form) {
-      if (key === "name" || key === "body_types" || key === "enabled_sources")
-        continue;
+    for (const [key, value] of data) {
+      if (key === "body_types") continue;
       const text = String(value).trim();
       filters[key] = text ? (numbers.has(key) ? Number(text) : text) : null;
     }
-    if (!make) filters.model = null;
-    filters.body_types = form.getAll("body_types").map(String);
-    if (!filters.model) filters.generation = null;
+    filters.body_types = data.getAll("body_types").map(String);
+    if (basic.make !== f.make || basic.model !== f.model)
+      filters.generation = null;
     for (const prefix of [
       "year",
       "price",
@@ -83,185 +208,266 @@ export function SearchForm({
       const a = filters[prefix + "_from"],
         b = filters[prefix + "_to"];
       if (a != null && b != null && Number(a) > Number(b)) {
-        setError("Значение «от» должно быть не больше значения «до».");
+        setError("Значение «от» должно быть не больше значения «до»");
         return;
       }
     }
-    if (!chosen.length) {
-      setError("Выберите хотя бы один источник.");
-      return;
+    const start =
+      (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") !==
+      "save";
+    try {
+      await onSubmit(filters, chosen, start);
+      setMobileOpen(false);
+    } catch (e) {
+      setError((e as Error).message);
     }
-    void onSubmit(String(form.get("name")).trim(), filters, chosen);
   }
-  const input = (name: string, label: string, min = "0") => (
-    <label key={name}>
-      {label}
-      <input
-        name={name}
-        type="number"
-        min={min}
-        step={name.includes("volume") ? ".1" : "1"}
-        defaultValue={String(f[name] ?? "")}
-      />
-    </label>
-  );
   return (
-    <form className="search-form" onSubmit={submit}>
-      <div className="fields">
-        <label>
-          Название поиска
-          <input
-            name="name"
-            required
-            maxLength={150}
-            defaultValue={selected?.name || "Panamera до 1,9 млн"}
-          />
-        </label>
-        <label>
-          Марка
-          <select
-            name="make"
-            value={make}
-            onChange={(e) => setMake(e.target.value)}
+    <>
+      <button
+        ref={opener}
+        type="button"
+        className="mobile-filters outline"
+        onClick={() => setMobileOpen(true)}
+      >
+        <Icon name="filter" />
+        Изменить фильтры
+      </button>
+      <form
+        ref={form}
+        role={mobileOpen ? "dialog" : undefined}
+        aria-modal={mobileOpen || undefined}
+        aria-label={mobileOpen ? "Фильтры поиска" : "Условия поиска"}
+        onKeyDown={(e) => {
+          if (!mobileOpen) return;
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setMobileOpen(false);
+          }
+          if (e.key === "Tab") {
+            const controls = Array.from(
+              form.current?.querySelectorAll<HTMLElement>(
+                'input:not([type="hidden"]):not(:disabled),button:not(:disabled),select:not(:disabled),textarea',
+              ) || [],
+            ).filter((el) => el.offsetParent !== null);
+            const first = controls[0],
+              last = controls[controls.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last?.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first?.focus();
+            }
+          }
+        }}
+        className={"search-form " + (mobileOpen ? "mobile-open" : "")}
+        onSubmit={(e) => void submit(e)}
+      >
+        <div className="mobile-filter-title">
+          <h2>Фильтры</h2>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Закрыть фильтры"
+            onClick={() => setMobileOpen(false)}
           >
-            <option value="">Любая</option>
-            {!["porsche", "bmw", ""].includes(make) && (
-              <option value={make}>{make}</option>
-            )}
-            <option value="porsche">Porsche</option>
-            <option value="bmw">BMW</option>
-          </select>
-        </label>
-        <label>
-          Модель
-          <select
-            key={make}
-            name="model"
-            defaultValue={make === f.make ? String(f.model || "") : ""}
-            disabled={!make}
-          >
-            <option value="">Любая</option>
-            {make === "porsche" && <option value="panamera">Panamera</option>}
-            {make === "bmw" && <option value="3-series">3 series</option>}
-            {f.model && !["panamera", "3-series"].includes(String(f.model)) && (
-              <option value={String(f.model)}>{String(f.model)}</option>
-            )}
-          </select>
-        </label>
-        <label>
-          Регион
-          <input
-            name="region"
-            list="regions"
-            defaultValue={String(f.region || "")}
-            placeholder="Любой"
-          />
-          <datalist id="regions">
-            <option value="москва" />
-          </datalist>
-        </label>
-        {input("price_to", "Цена до, ₽")}
-        {input("year_from", "Год от", "1886")}
-        {input("year_to", "Год до", "1886")}
-        {input("owners_max", "Владельцев до", "1")}
-      </div>
-      <details className="advanced-filters">
-        <summary>Все характеристики</summary>
-        <div className="fields">
-          <label>
-            Поколение
-            <input
-              name="generation"
-              defaultValue={String(f.generation || "")}
-              placeholder="Например, 970"
-            />
-          </label>
-          {ranges.map(([name, label, min]) => input(name, label, min))}
-          {Object.entries(enums).map(([name, [title, values]]) => (
-            <label key={name}>
-              {title}
-              <select name={name} defaultValue={String(f[name] || "")}>
-                <option value="">Любой</option>
-                {values.map((value) => (
-                  <option value={value} key={value}>
-                    {labels[value]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
+            <Icon name="close" />
+          </button>
         </div>
-        <fieldset>
-          <legend>Кузов</legend>
-          <div className="body-options">
-            {[
-              "sedan",
-              "hatchback",
-              "liftback",
-              "wagon",
-              "suv",
-              "coupe",
-              "convertible",
-              "pickup",
-              "minivan",
-              "van",
-              "other",
-            ].map((value) => (
-              <label className="checkbox" key={value}>
+        <div className="primary-filters">
+          <div className="filter-field">
+            <span>Марка</span>
+            <ComboBox
+              label="Марка"
+              name="make"
+              value={basic.make}
+              options={options(brands, "Выберите марку")}
+              onChange={(v) => change("make", v)}
+              disabled={!brands.length}
+            />
+          </div>
+          <div className="filter-field">
+            <span>Модель</span>
+            <ComboBox
+              label="Модель"
+              name="model"
+              value={basic.model}
+              options={options(models, "Любая модель")}
+              onChange={(v) => change("model", v)}
+              disabled={modelLoading || !basic.make}
+            />
+          </div>
+          <div className="filter-field">
+            <span>Год выпуска</span>
+            <div className="range-pair">
+              <ComboBox
+                label="Год от"
+                name="year_from"
+                value={basic.year_from}
+                options={yearOptions}
+                onChange={(v) => change("year_from", v)}
+              />
+              <span>–</span>
+              <ComboBox
+                label="Год до"
+                name="year_to"
+                value={basic.year_to}
+                options={yearOptions}
+                onChange={(v) => change("year_to", v)}
+              />
+            </div>
+          </div>
+          <div className="filter-field price-field">
+            <span>Цена, ₽</span>
+            <div className="range-pair">
+              <ComboBox
+                label="Цена от"
+                name="price_from"
+                value={basic.price_from}
+                options={priceOptions}
+                onChange={(v) => change("price_from", v)}
+              />
+              <span>–</span>
+              <ComboBox
+                label="Цена до"
+                name="price_to"
+                value={basic.price_to}
+                options={priceOptions}
+                onChange={(v) => change("price_to", v)}
+              />
+            </div>
+          </div>
+          <div className="filter-field">
+            <span>Регион</span>
+            <ComboBox
+              label="Регион"
+              name="region"
+              value={basic.region}
+              options={regions}
+              onChange={(v) => change("region", v)}
+            />
+          </div>
+        </div>
+        <div className="search-actions">
+          <button
+            type="button"
+            className="outline all-filters"
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+          >
+            <Icon name="filter" />
+            Все фильтры
+          </button>
+          <fieldset className="source-choice">
+            <legend>Источники</legend>
+            {["drom", "auto_ru"].map((source) => (
+              <label className="checkbox" key={source}>
                 <input
                   type="checkbox"
-                  name="body_types"
-                  value={value}
-                  defaultChecked={
-                    Array.isArray(f.body_types) && f.body_types.includes(value)
+                  aria-label={sourceNames[source]}
+                  disabled={!allowed.includes(source)}
+                  checked={chosen.includes(source)}
+                  onChange={(e) =>
+                    setSources((prev) =>
+                      e.target.checked
+                        ? [...prev, source]
+                        : prev.filter((s) => s !== source),
+                    )
                   }
                 />
-                {labels[value]}
+                {sourceNames[source]}
               </label>
             ))}
+          </fieldset>
+          <div className="submit-actions">
+            <button
+              type="submit"
+              value="find"
+              disabled={busy || modelLoading || !basic.make || !chosen.length}
+            >
+              {busy ? "Ищем…" : "Найти автомобили"}
+            </button>
+            <button
+              type="submit"
+              value="save"
+              className="outline accent"
+              disabled={busy || modelLoading || !basic.make || !chosen.length}
+            >
+              Сохранить поиск
+            </button>
           </div>
-        </fieldset>
-        <p className="small muted">
-          Drom: Москва, Санкт-Петербург, Новосибирск. Auto.ru: Москва. Оставьте
-          регион пустым для поиска по России. Радиус пока не поддерживается.
-          Неизвестные характеристики можно показать отдельно.
-        </p>
-      </details>
-      <fieldset className="source-choice">
-        <legend>Где искать</legend>
-        {Object.entries(sourceNames).map(([source, name]) => (
-          <label className="checkbox" key={source}>
-            <input
-              type="checkbox"
-              name="enabled_sources"
-              value={source}
-              disabled={!availableSources.includes(source)}
-              checked={chosen.includes(source)}
-              onChange={(e) =>
-                setSources(
-                  e.target.checked
-                    ? [...chosen, source]
-                    : chosen.filter((x) => x !== source),
-                )
-              }
-            />
-            {name}
-            {!availableSources.includes(source) ? " · не подключён" : ""}
-          </label>
-        ))}
-      </fieldset>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <button disabled={busy}>
-        {busy
-          ? "Поиск выполняется…"
-          : selected
-            ? "Сохранить изменения и найти"
-            : "Сохранить и найти"}
-      </button>
-    </form>
+        </div>
+        <div className="advanced-fields" hidden={!expanded}>
+          <div className="fields">
+            {input("owners_max", "Владельцев до", "1")}
+            {input("mileage_from", "Пробег от, км")}
+            {input("mileage_to", "Пробег до, км")}
+            {input("engine_volume_from", "Двигатель от, л", ".1", ".1")}
+            {input("engine_volume_to", "Двигатель до, л", ".1", ".1")}
+            {input("power_from", "Мощность от, л. с.", "1")}
+            {input("power_to", "Мощность до, л. с.", "1")}
+            {Object.entries(enums).map(([key, [label, values]]) => (
+              <label key={key}>
+                {label}
+                <select name={key} defaultValue={String(f[key] || "")}>
+                  <option value="">Любой</option>
+                  {values.map((v) => (
+                    <option key={v} value={v}>
+                      {labels[v]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <label>
+              Поколение
+              <input
+                name="generation"
+                value={generation}
+                onChange={(e) => setGeneration(e.target.value)}
+                placeholder="Например, 970"
+              />
+            </label>
+          </div>
+          <fieldset>
+            <legend>Кузов</legend>
+            <div className="body-options">
+              {[
+                "sedan",
+                "hatchback",
+                "liftback",
+                "wagon",
+                "suv",
+                "coupe",
+                "convertible",
+                "pickup",
+                "minivan",
+                "van",
+                "other",
+              ].map((value) => (
+                <label className="checkbox" key={value}>
+                  <input
+                    type="checkbox"
+                    name="body_types"
+                    value={value}
+                    defaultChecked={
+                      Array.isArray(f.body_types) &&
+                      f.body_types.includes(value)
+                    }
+                  />
+                  {labels[value]}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+      </form>
+    </>
   );
 }

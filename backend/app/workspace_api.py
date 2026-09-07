@@ -9,6 +9,7 @@ from app.auth.security import require_user
 from app.db import schema as t
 from app.db.connection import engine
 from app.services.matching import audit, owned_clusters
+from app.services.visibility import visible_source
 
 router = APIRouter(prefix="/api")
 User = Annotated[dict[str, Any], Depends(require_user)]
@@ -26,7 +27,11 @@ def listing_image(listing_id: uuid.UUID, index: int, user: User) -> Any:
             conn.execute(
                 sa.select(t.listings)
                 .join(t.memberships)
-                .where(t.memberships.c.user_id == user["id"], t.listings.c.id == listing_id)
+                .where(
+                    t.memberships.c.user_id == user["id"],
+                    t.listings.c.id == listing_id,
+                    visible_source(t.listings.c.source),
+                )
             )
             .mappings()
             .first()
@@ -172,7 +177,15 @@ def list_events(
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
 ) -> dict[str, Any]:
     with engine().connect() as conn:
-        conditions = [t.events.c.user_id == user["id"]]
+        conditions = [
+            t.events.c.user_id == user["id"],
+            sa.or_(
+                t.events.c.listing_id.is_(None),
+                t.events.c.listing_id.in_(
+                    sa.select(t.listings.c.id).where(visible_source(t.listings.c.source))
+                ),
+            ),
+        ]
         count = conn.execute(
             sa.select(sa.func.count()).select_from(t.events).where(*conditions, t.events.c.read_at.is_(None))
         ).scalar_one()

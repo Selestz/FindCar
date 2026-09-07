@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 from app.sources.base import SourceFailure, SourcePage
 from app.sources.html import Node, Tree
 
-PARSER_VERSION = "drom-html-1"
+PARSER_VERSION = "drom-html-2"
 
 
 def identity(url: str) -> tuple[str, str, str]:
@@ -82,6 +82,8 @@ def search(html: str, page: int) -> SourcePage:
         card = by_url.get(raw["source_url"])
         if card is None:
             raise SourceFailure("PARSER_ERROR")
+        if card.find("bull_sold"):
+            raw["car"]["offers"]["availability"] = "https://schema.org/OutOfStock"
         raw["title"] = marked(card, "bull_title")
         raw["city"] = marked(card, "bull_location")
         raw["summary"] = [n.text() for n in card.find("bull_description-item")]

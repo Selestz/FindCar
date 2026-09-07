@@ -166,7 +166,9 @@ def test_changed_filter_and_price_drop_sort(client, monkeypatch):
 
 
 def test_cannot_delete_running_search(client):
-    result = client.post("/api/searches", json={"name": "Queued", "filters": {}}).json()
+    result = client.post(
+        "/api/searches", json={"name": "Queued", "filters": {}, "enabled_sources": ["mock"]}
+    ).json()
     assert client.delete("/api/searches/" + result["search_id"]).status_code == 409
     drain()
     assert client.delete("/api/searches/" + result["search_id"]).status_code == 204

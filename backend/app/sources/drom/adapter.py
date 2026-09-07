@@ -1,8 +1,8 @@
-import re
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
+from app.catalog import source_scope
 from app.domain.models import NormalizedListing, Source, UnifiedSearchFilters
 from app.sources.base import CarSourceAdapter, SourceCapabilities, SourceFailure, SourcePage
 from app.sources.drom import parser
@@ -13,16 +13,15 @@ REGIONS = {"москва": "moscow", "санкт-петербург": "spb", "н
 
 
 def search_url(filters: UnifiedSearchFilters, page: int) -> str:
-    if not filters.make or not filters.model:
+    if not filters.make:
         raise SourceFailure("SEARCH_SCOPE_REQUIRED")
-    if not all(re.fullmatch(r"[a-z0-9_-]{1,80}", x) for x in (filters.make, filters.model)):
-        raise SourceFailure("UNSUPPORTED_FILTER")
+    make, model = source_scope("drom", filters.make, filters.model)
     region = REGIONS.get(filters.region or "")
     if filters.region and not region:
         raise SourceFailure("UNSUPPORTED_REGION")
     if page not in (1, 2):
         raise SourceFailure("PAGE_LIMIT")
-    path = "/".join(([region] if region else []) + [filters.make, filters.model])
+    path = "/".join(([region] if region else []) + [make] + ([model] if model else []))
     query = {
         name: str(value)
         for name, value in (("minprice", filters.price_from), ("maxprice", filters.price_to))

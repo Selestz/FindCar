@@ -21,6 +21,7 @@ include = ["app*"]
 
 [tool.setuptools.package-data]
 "app.sources.mock" = ["*.json"]
+"app.catalog" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -156,9 +156,11 @@ class NormalizedListing(Model):
 
 
 class SearchInput(Model):
-    name: str = Field(min_length=1, max_length=150)
+    name: str | None = Field(default=None, max_length=150)
     filters: UnifiedSearchFilters
-    enabled_sources: list[Source] = Field(default_factory=lambda: [Source.MOCK], min_length=1, max_length=4)
+    enabled_sources: list[Source] = Field(
+        default_factory=lambda: [Source.DROM, Source.AUTO_RU], min_length=1, max_length=4
+    )
 
     @field_validator("enabled_sources")
     @classmethod

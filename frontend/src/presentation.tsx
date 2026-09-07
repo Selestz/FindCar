@@ -1,7 +1,6 @@
+import { Icon } from "./components/Icon";
 import { Fragment, useState } from "react";
 export const sourceNames: Record<string, string> = {
-  mock: "Демо",
-  avito: "Avito",
   auto_ru: "Auto.ru",
   drom: "Drom",
 };
@@ -64,7 +63,7 @@ export const labels: Record<string, string> = {
   RATE_LIMITED: "Временное ограничение запросов",
   AUTH_REQUIRED: "Нужен вход в источник",
   PARSER_ERROR: "Не удалось прочитать ответ",
-  SEARCH_SCOPE_REQUIRED: "Для реального источника укажите марку и модель",
+  SEARCH_SCOPE_REQUIRED: "Укажите марку автомобиля",
   UNSUPPORTED_REGION:
     "Источник не поддерживает этот регион. Выберите Москву или оставьте регион пустым",
   UNSUPPORTED_FILTER: "Источник не поддерживает выбранное значение фильтра",
@@ -138,7 +137,6 @@ export function Description({
 }
 export function CarPreview({
   title,
-  source = "mock",
   image,
 }: {
   title: string;
@@ -158,32 +156,9 @@ export function CarPreview({
       </div>
     );
   return (
-    <div
-      className="car-preview"
-      aria-label={
-        source === "mock"
-          ? `Демонстрационная иллюстрация: ${title}`
-          : "Фотография недоступна"
-      }
-    >
-      <svg viewBox="0 0 320 160" aria-hidden="true">
-        <ellipse cx="164" cy="131" rx="123" ry="7" fill="#c4ced0" />
-        <path
-          d="M34 112 43 93 85 81 120 53Q128 48 147 48h42q15 0 27 10l30 26 28 8q13 4 13 17v13H33z"
-          fill={title.includes("4S") ? "#354d59" : "#7c939b"}
-        />
-        <path
-          d="m93 82 33-27h23v27zm64-27h31q12 0 23 10l18 17h-72z"
-          fill="#dbe9eb"
-        />
-        <path d="M42 98h26l-6 9H39zm219-2h18v8h-16z" fill="#f1e5bc" />
-        <circle cx="92" cy="120" r="21" fill="#20343f" />
-        <circle cx="92" cy="120" r="11" fill="#a7b8bd" />
-        <circle cx="244" cy="120" r="21" fill="#20343f" />
-        <circle cx="244" cy="120" r="11" fill="#a7b8bd" />
-        <path d="M121 116h94M162 89h13" stroke="#d3dfe0" strokeWidth="3" />
-      </svg>
-      <span>{source === "mock" ? "Иллюстрация · демо" : "Нет фотографии"}</span>
+    <div className="car-preview no-photo" aria-label="Фотография недоступна">
+      <Icon name="image" size={32} />
+      <span>Нет фотографии</span>
     </div>
   );
 }

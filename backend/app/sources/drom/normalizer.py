@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from app.catalog import canonical_names
 from app.domain.models import NormalizedListing, Source
 from app.sources.drom.parser import PARSER_VERSION
 
@@ -40,18 +41,19 @@ ENUMS = {
 def normalize(raw: dict[str, Any], observed_at: datetime) -> NormalizedListing:
     car, specs = raw["car"], raw.get("specs", {})
     offer = car["offers"]
+    make, model = canonical_names("drom", raw["make"], raw["model"])
     values: dict[str, Any] = {
         "source": Source.DROM,
         "source_listing_id": raw["source_listing_id"],
         "source_url": raw["source_url"],
         "title": raw.get("title") or f"{car['name']}, {car.get('vehicleModelDate', '')}".strip(", "),
-        "make": raw["make"],
-        "model": raw["model"],
+        "make": make,
+        "model": model,
         "observed_at": observed_at,
         "status": "ACTIVE" if offer.get("availability", "").endswith("/InStock") else "UNKNOWN",
         "parser_version": PARSER_VERSION,
     }
-    if raw.get("detail") and offer.get("availability", "").endswith(("/SoldOut", "/OutOfStock")):
+    if offer.get("availability", "").endswith(("/SoldOut", "/OutOfStock")):
         values["status"] = "REMOVED"
     if car.get("vehicleModelDate"):
         values["year"] = int(car["vehicleModelDate"])
@@ -96,4 +98,7 @@ def normalize(raw: dict[str, Any], observed_at: datetime) -> NormalizedListing:
     if urls:
         values.update(main_image_url=urls[0], images=urls)
     values["field_presence"] = set(values) - {"observed_at", "parser_version"}
+    # A cached search card cannot revive an offer confirmed removed on its detail page.
+    if not raw.get("detail") and values["status"] != "REMOVED":
+        values["field_presence"].discard("status")
     return NormalizedListing.model_validate(values)

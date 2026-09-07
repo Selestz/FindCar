@@ -15,6 +15,7 @@ from app.sources.mock.adapter import MockSourceAdapter
 from app.worker.runner import claim, run_once
 
 SEARCH = {
+    "enabled_sources": ["mock"],
     "name": "Panamera до 1,9 млн",
     "filters": {
         "make": "porsche",

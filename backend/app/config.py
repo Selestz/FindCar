@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     session_hours: int = Field(default=24, ge=1, le=168)
     manual_refresh_cooldown: int = Field(default=300, ge=0)
     mock_scenario: str = "normal"
+    test_fixtures_enabled: bool = False
     drom_enabled: bool = False
     auto_ru_enabled: bool = False
     worker_poll_seconds: float = Field(default=1, ge=0.1)

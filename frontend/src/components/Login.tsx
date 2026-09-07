@@ -26,7 +26,9 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
   }
   return (
     <main className="login">
-      <div className="wordmark">findcar</div>
+      <div className="wordmark">
+        find<span>car</span>
+      </div>
       <h1>Ваш следующий автомобиль</h1>
       <p className="muted">Закрытый поиск для вас и ваших друзей.</p>
       <form onSubmit={submit}>
