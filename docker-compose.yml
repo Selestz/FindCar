@@ -1,0 +1,58 @@
+name: findcar
+x-backend: &backend
+  build: ./backend
+  environment: &env
+    DATABASE_URL: postgresql+psycopg://findcar:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/findcar
+    APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+    COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    MANUAL_REFRESH_COOLDOWN: ${MANUAL_REFRESH_COOLDOWN:-300}
+    MOCK_SCENARIO: ${MOCK_SCENARIO:-normal}
+    DROM_ENABLED: ${DROM_ENABLED:-false}
+    AUTO_RU_ENABLED: ${AUTO_RU_ENABLED:-false}
+    JOB_TIMEOUT_SECONDS: ${JOB_TIMEOUT_SECONDS:-90}
+    SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+    SCHEDULER_JITTER_SECONDS: ${SCHEDULER_JITTER_SECONDS:-120}
+    SOURCE_REQUEST_INTERVAL_SECONDS: ${SOURCE_REQUEST_INTERVAL_SECONDS:-2}
+    SOURCE_REQUESTS_PER_HOUR: ${SOURCE_REQUESTS_PER_HOUR:-120}
+    RETRY_BASE_SECONDS: ${RETRY_BASE_SECONDS:-60}
+    MAX_JOB_ATTEMPTS: ${MAX_JOB_ATTEMPTS:-3}
+    KNOWN_DETAIL_LIMIT: ${KNOWN_DETAIL_LIMIT:-3}
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_USER: findcar
+      POSTGRES_DB: findcar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U findcar -d findcar"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    <<: *backend
+    command: [alembic, upgrade, head]
+    depends_on:
+      postgres: {condition: service_healthy}
+  backend:
+    <<: *backend
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  worker:
+    <<: *backend
+    command: [python, -m, app.worker.runner]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  frontend:
+    build: ./frontend
+    ports: ["127.0.0.1:${WEB_PORT:-8080}:80"]
+    depends_on:
+      backend: {condition: service_healthy}
+volumes:
+  postgres-data:
