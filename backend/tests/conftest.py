@@ -23,6 +23,7 @@ def db(monkeypatch):
         pytest.fail("Test database name must end with _test; refusing to clear other databases")
     monkeypatch.setenv("DATABASE_URL", url)
     monkeypatch.setenv("APP_ORIGIN", "http://testserver")
+    monkeypatch.setenv("COOKIE_SECURE", "false")  # TestClient uses HTTP; HTTPS has a separate test.
     monkeypatch.setenv("MANUAL_REFRESH_COOLDOWN", "0")
     monkeypatch.setenv("MOCK_SCENARIO", "normal")
     monkeypatch.setenv("DROM_ENABLED", "false")
