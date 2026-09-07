@@ -556,6 +556,9 @@ summary::-webkit-details-marker {
   height: 100%;
   object-fit: cover;
 }
+.car-preview.portrait img {
+  object-fit: contain;
+}
 .no-photo {
   display: flex;
   flex-direction: column;

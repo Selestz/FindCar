@@ -144,13 +144,25 @@ export function CarPreview({
   image?: string;
 }) {
   const [failed, setFailed] = useState<string | null>(null);
+  const [portrait, setPortrait] = useState<string | null>(null);
   if (image && failed !== image)
     return (
-      <div className="car-preview photograph">
+      <div
+        className={
+          "car-preview photograph" + (portrait === image ? " portrait" : "")
+        }
+      >
         <img
           src={image}
           alt={title}
           loading="lazy"
+          onLoad={(e) =>
+            setPortrait(
+              e.currentTarget.naturalWidth < e.currentTarget.naturalHeight
+                ? image
+                : null,
+            )
+          }
           onError={() => setFailed(image)}
         />
       </div>
